@@ -369,6 +369,7 @@ int av_log_format_line2(void *ptr, int level, const char *fmt, va_list vl,
 void av_log_set_flags(int arg);
 int av_log_get_flags(void);
 
+#include "cde_log.h"
 /**
  * @}
  */

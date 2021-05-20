@@ -223,9 +223,11 @@ static int hevc_parse_nal_header(H2645NAL *nal, void *logctx)
     if (nal->temporal_id < 0)
         return AVERROR_INVALIDDATA;
 
-    av_log(logctx, AV_LOG_DEBUG,
+#if 0
+    av_log(logctx, AV_LOG_DEBUG, 
            "nal_unit_type: %d(%s), nuh_layer_id: %d, temporal_id: %d\n",
            nal->type, nal_unit_name(nal->type), nuh_layer_id, nal->temporal_id);
+#endif
 
     return nuh_layer_id == 0;
 }
@@ -240,9 +242,11 @@ static int h264_parse_nal_header(H2645NAL *nal, void *logctx)
     nal->ref_idc = get_bits(gb, 2);
     nal->type    = get_bits(gb, 5);
 
+#if 0
     av_log(logctx, AV_LOG_DEBUG,
            "nal_unit_type: %d, nal_ref_idc: %d\n",
            nal->type, nal->ref_idc);
+#endif
 
     return 1;
 }

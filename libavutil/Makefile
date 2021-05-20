@@ -76,6 +76,11 @@ HEADERS = adler32.h                                                     \
           version.h                                                     \
           xtea.h                                                        \
           tea.h                                                         \
+          application.h                                                 \
+          dns_cache.h                                                   \
+          thread.h                                                      \
+          cde_log.h                                                     \
+
 
 HEADERS-$(CONFIG_LZO)                   += lzo.h
 
@@ -155,6 +160,8 @@ OBJS = adler32.o                                                        \
        xga_font_data.o                                                  \
        xtea.o                                                           \
        tea.o                                                            \
+       application.o                                                    \
+       dns_cache.o                                                      \
 
 OBJS-$(!HAVE_ATOMICS_NATIVE)            += atomic.o                     \
 

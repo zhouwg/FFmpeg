@@ -3361,8 +3361,9 @@ void ff_rfps_calculate(AVFormatContext *ic)
                         best_error= error;
                         num = get_std_framerate(j);
                     }
-                    if (error < 0.02)
-                        av_log(ic, AV_LOG_DEBUG, "rfps: %f %f\n", get_std_framerate(j) / 12.0/1001, error);
+                    if (error < 0.02) {
+                        //av_log(ic, AV_LOG_DEBUG, "rfps: %f %f\n", get_std_framerate(j) / 12.0/1001, error);
+                    }
                 }
             }
             // do not increase frame rate by more than 1 % in order to match a standard rate.
