@@ -3350,7 +3350,7 @@ static int hevc_decode_frame(AVCodecContext *avctx, void *data, int *got_output,
     s->sei.picture_hash.is_md5 = 0;
 
     if (s->is_decoded) {
-        av_log(avctx, AV_LOG_DEBUG, "Decoded frame with POC %d.\n", s->poc);
+        //av_log(avctx, AV_LOG_DEBUG, "Decoded frame with POC %d.\n", s->poc);
         s->is_decoded = 0;
     }
 

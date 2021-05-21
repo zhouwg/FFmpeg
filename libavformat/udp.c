@@ -285,7 +285,11 @@ static int udp_set_multicast_sources(URLContext *h,
         return AVERROR(EINVAL);
 #endif
     }
-#if HAVE_STRUCT_IP_MREQ_SOURCE && defined(IP_BLOCK_SOURCE)
+    //2021-05-21,weiguo
+    //libavformat/udp.c:296:28: error: request for member 's_addr' in something not a structure or union
+    //mreqs.imr_multiaddr.s_addr = ((struct sockaddr_in *)addr)->sin_addr.s_addr;
+
+#if 0//HAVE_STRUCT_IP_MREQ_SOURCE && defined(IP_BLOCK_SOURCE)
     for (i = 0; i < nb_sources; i++) {
         struct ip_mreq_source mreqs;
         if (sources[i].ss_family != AF_INET) {

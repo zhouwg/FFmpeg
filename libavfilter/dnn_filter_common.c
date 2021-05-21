@@ -33,7 +33,9 @@ int ff_dnn_init(DnnContext *ctx, DNNFunctionType func_type, AVFilterContext *fil
         return AVERROR(EINVAL);
     }
 
-    ctx->dnn_module = ff_get_dnn_module(ctx->backend_type);
+    //libavfilter/dnn_filter_common.c:36: error: undefined reference to 'ff_get_dnn_module'
+    //collect2: error: ld returned 1 exit status
+    ctx->dnn_module = NULL;//ff_get_dnn_module(ctx->backend_type);
     if (!ctx->dnn_module) {
         av_log(filter_ctx, AV_LOG_ERROR, "could not create DNN module for requested backend\n");
         return AVERROR(ENOMEM);

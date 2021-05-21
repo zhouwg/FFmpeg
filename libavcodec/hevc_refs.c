@@ -216,8 +216,10 @@ int ff_hevc_output_frame(HEVCContext *s, AVFrame *out, int flush)
             if (ret < 0)
                 return ret;
 
+            /*
             av_log(s->avctx, AV_LOG_DEBUG,
                    "Output frame with POC %d.\n", frame->poc);
+            */
             return 1;
         }
 
