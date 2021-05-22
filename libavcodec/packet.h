@@ -422,6 +422,8 @@ typedef struct AVPacketList {
  * outside the packet may be followed.
  */
 #define AV_PKT_FLAG_TRUSTED   0x0008
+
+#define AV_PKT_FLAG_NEW_SEG   0x8000 ///< The packet is the first packet from a source in concat
 /**
  * Flag is used to indicate packets that contain frames that can
  * be discarded by the decoder.  I.e. Non-reference frames.

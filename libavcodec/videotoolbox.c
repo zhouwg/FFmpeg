@@ -415,7 +415,8 @@ int ff_videotoolbox_uninit(AVCodecContext *avctx)
     return 0;
 }
 
-#if CONFIG_VIDEOTOOLBOX
+//2021-05-22,weiguo, TODO:enable original videotoolbox support for ios
+#if 0 // CONFIG_VIDEOTOOLBOX
 // Return the AVVideotoolboxContext that matters currently. Where it comes from
 // depends on the API used.
 static AVVideotoolboxContext *videotoolbox_get_context(AVCodecContext *avctx)
