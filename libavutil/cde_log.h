@@ -1,11 +1,11 @@
 /*#########################################################################
 # * @author     zhouwg2000@gmail.com
-# * @date    	2015-10  ~ present
+# * @date       2015-10  ~ present
 # * @note
 # * @history
 # *             2015-10, create
 #
-#	Copyright (C) zhou.weiguo, 2015-2021  All rights reserved.
+#   Copyright (C) zhou.weiguo, 2015-2021  All rights reserved.
 #
 # * Licensed under the Apache License, Version 2.0 (the "License");
 # * you may not use this file except in compliance with the License.
@@ -53,7 +53,7 @@ typedef enum cde_android_LogPriority {
 
 #ifndef LOG_NDEBUG
     #ifdef NDEBUG
-        #define LOG_NDEBUG 1
+        #define LOG_NDEBUG 0
     #else
         #define LOG_NDEBUG 0
     #endif

@@ -23,12 +23,14 @@
 #include "libavutil/aes.h"
 #include "libavutil/avstring.h"
 #include "libavutil/opt.h"
+#include "libavutil/hlsencryptinfo.h"
 #include "internal.h"
 #include "url.h"
 
 // encourage reads of 4096 bytes - 1 block is always retained.
 #define MAX_BUFFER_BLOCKS 257
 #define BLOCKSIZE 16
+
 
 typedef struct CryptoContext {
     const AVClass *class;
@@ -52,24 +54,29 @@ typedef struct CryptoContext {
     int encrypt_keylen;
     uint8_t *encrypt_iv;
     int encrypt_ivlen;
+    int64_t hlsEncryptInfo_intptr;
+    struct key_info* hlsEncryptInfo;
     struct AVAES *aes_decrypt;
     struct AVAES *aes_encrypt;
     uint8_t *write_buf;
     unsigned int write_buf_size;
     uint8_t pad[BLOCKSIZE];
     int pad_len;
+
 } CryptoContext;
+
 
 #define OFFSET(x) offsetof(CryptoContext, x)
 #define D AV_OPT_FLAG_DECODING_PARAM
 #define E AV_OPT_FLAG_ENCODING_PARAM
 static const AVOption options[] = {
-    {"key", "AES encryption/decryption key",                   OFFSET(key),         AV_OPT_TYPE_BINARY, .flags = D|E },
-    {"iv",  "AES encryption/decryption initialization vector", OFFSET(iv),          AV_OPT_TYPE_BINARY, .flags = D|E },
-    {"decryption_key", "AES decryption key",                   OFFSET(decrypt_key), AV_OPT_TYPE_BINARY, .flags = D },
-    {"decryption_iv",  "AES decryption initialization vector", OFFSET(decrypt_iv),  AV_OPT_TYPE_BINARY, .flags = D },
-    {"encryption_key", "AES encryption key",                   OFFSET(encrypt_key), AV_OPT_TYPE_BINARY, .flags = E },
-    {"encryption_iv",  "AES encryption initialization vector", OFFSET(encrypt_iv),  AV_OPT_TYPE_BINARY, .flags = E },
+    {"key", "AES encryption/decryption key",                   OFFSET(key),          AV_OPT_TYPE_BINARY, .flags = D|E },
+    {"iv",  "AES encryption/decryption initialization vector", OFFSET(iv),           AV_OPT_TYPE_BINARY, .flags = D|E },
+    {"decryption_key", "AES decryption key",                   OFFSET(decrypt_key),  AV_OPT_TYPE_BINARY, .flags = D },
+    {"decryption_iv",  "AES decryption initialization vector", OFFSET(decrypt_iv),   AV_OPT_TYPE_BINARY, .flags = D },
+    {"encryption_key", "AES encryption key",                   OFFSET(encrypt_key),  AV_OPT_TYPE_BINARY, .flags = E },
+    {"encryption_iv",  "AES encryption initialization vector", OFFSET(encrypt_iv),   AV_OPT_TYPE_BINARY, .flags = E },
+    {"hlsEncryptInfo", "HLS encryption info",                  OFFSET(hlsEncryptInfo_intptr), AV_OPT_TYPE_INT64, { .i64 = 0 }, INT64_MIN, INT64_MAX, .flags = D },
     { NULL }
 };
 
@@ -113,6 +120,7 @@ static int crypto_open2(URLContext *h, const char *uri, int flags, AVDictionary 
     int ret = 0;
     CryptoContext *c = h->priv_data;
     c->flags = flags;
+    c->hlsEncryptInfo = (struct key_info*)c->hlsEncryptInfo_intptr;
 
     if (!av_strstart(uri, "crypto+", &nested_url) &&
         !av_strstart(uri, "crypto:", &nested_url)) {
@@ -153,7 +161,7 @@ static int crypto_open2(URLContext *h, const char *uri, int flags, AVDictionary 
             ret = AVERROR(ENOMEM);
             goto err;
         }
-        ret = av_aes_init(c->aes_decrypt, c->decrypt_key, BLOCKSIZE * 8, 1);
+        ret = av_aes_init(c->aes_decrypt, c->hlsEncryptInfo->encryptionKey, BLOCKSIZE * 8, 1);
         if (ret < 0)
             goto err;
 
@@ -197,7 +205,7 @@ retry:
     // since we'll remove PKCS7 padding at the end. So make
     // sure we've got at least 2 blocks, so we can decrypt
     // at least one.
-    while (c->indata - c->indata_used < 2*BLOCKSIZE) {
+    while (c->indata - c->indata_used < 2 * BLOCKSIZE) {
         int n = ffurl_read(c->hd, c->inbuffer + c->indata,
                            sizeof(c->inbuffer) - c->indata);
         if (n <= 0) {
@@ -211,21 +219,27 @@ retry:
         return AVERROR_EOF;
     if (!c->eof)
         blocks--;
-    av_aes_crypt(c->aes_decrypt, c->outbuffer, c->inbuffer + c->indata_used,
-                 blocks, c->decrypt_iv, 1);
+    if (0 == strcmp(c->hlsEncryptInfo->encryptionMethod, "AES-128"))
+        av_aes_crypt(c->aes_decrypt, c->outbuffer, c->inbuffer + c->indata_used, blocks, c->hlsEncryptInfo->encryptionIv, 1);
+    if (0 == strcmp(c->hlsEncryptInfo->encryptionMethod, "SAMPLE-AES"))
+        memcpy(c->outbuffer, c->inbuffer + c->indata_used, blocks * BLOCKSIZE);
+    if (0 == strcmp(c->hlsEncryptInfo->encryptionMethod, "SAMPLE-SM4"))
+        memcpy(c->outbuffer, c->inbuffer + c->indata_used, blocks * BLOCKSIZE);
     c->outdata      = BLOCKSIZE * blocks;
     c->outptr       = c->outbuffer;
     c->indata_used += BLOCKSIZE * blocks;
-    if (c->indata_used >= sizeof(c->inbuffer)/2) {
+    if (c->indata_used >= sizeof(c->inbuffer) / 2) {
         memmove(c->inbuffer, c->inbuffer + c->indata_used,
                 c->indata - c->indata_used);
         c->indata     -= c->indata_used;
         c->indata_used = 0;
     }
     if (c->eof) {
-        // Remove PKCS7 padding at the end
-        int padding = c->outbuffer[c->outdata - 1];
-        c->outdata -= padding;
+        if (0 == strcmp(c->hlsEncryptInfo->encryptionMethod, "AES-128")) {
+            // Remove PKCS7 padding at the end
+            int padding = c->outbuffer[c->outdata - 1];
+            c->outdata -= padding;
+        }
     }
     goto retry;
 }

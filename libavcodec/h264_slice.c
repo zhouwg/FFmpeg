@@ -2666,12 +2666,14 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
                 goto finish;
             }
             if (sl->cabac.bytestream > sl->cabac.bytestream_end + 2 )
-                av_log(h->avctx, AV_LOG_DEBUG, "bytestream overread %"PTRDIFF_SPECIFIER"\n", sl->cabac.bytestream_end - sl->cabac.bytestream);
+                av_log(h->avctx, AV_LOG_TRACE, "bytestream overread %"PTRDIFF_SPECIFIER"\n", sl->cabac.bytestream_end - sl->cabac.bytestream);
             if (ret < 0 || sl->cabac.bytestream > sl->cabac.bytestream_end + 4) {
-                av_log(h->avctx, AV_LOG_ERROR,
+                /*
+                av_log(h->avctx, AV_LOG_VERBOSE,
                        "error while decoding MB %d %d, bytestream %"PTRDIFF_SPECIFIER"\n",
                        sl->mb_x, sl->mb_y,
                        sl->cabac.bytestream_end - sl->cabac.bytestream);
+                */
                 er_add_slice(sl, sl->resync_mb_x, sl->resync_mb_y, sl->mb_x,
                              sl->mb_y, ER_MB_ERROR);
                 return AVERROR_INVALIDDATA;
@@ -2727,8 +2729,10 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
             }
 
             if (ret < 0) {
-                av_log(h->avctx, AV_LOG_ERROR,
+                /*
+                av_log(h->avctx, AV_LOG_TRACE,
                        "error while decoding MB %d %d\n", sl->mb_x, sl->mb_y);
+                */
                 er_add_slice(sl, sl->resync_mb_x, sl->resync_mb_y, sl->mb_x,
                              sl->mb_y, ER_MB_ERROR);
                 return ret;

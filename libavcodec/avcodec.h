@@ -40,6 +40,7 @@
 #include "libavutil/log.h"
 #include "libavutil/pixfmt.h"
 #include "libavutil/rational.h"
+#include "libavutil/hlsencryptinfo.h"
 
 #include "bsf.h"
 #include "codec.h"
@@ -3539,9 +3540,11 @@ typedef struct AVCodecParserContext {
      * one returned by a decoder.
      */
     int format;
+    struct key_info *hlsEncryptInfo;
 } AVCodecParserContext;
 
 typedef struct AVCodecParser {
+    const char *name;
     int codec_ids[5]; /* several codec IDs are permitted */
     int priv_data_size;
     int (*parser_init)(AVCodecParserContext *s);
@@ -3577,7 +3580,9 @@ AVCodecParser *av_parser_next(const AVCodecParser *c);
 attribute_deprecated
 void av_register_codec_parser(AVCodecParser *parser);
 #endif
-AVCodecParserContext *av_parser_init(int codec_id);
+//AVCodecParserContext *av_parser_init(int codec_id);
+
+AVCodecParserContext *av_parser_init(int codec_id, struct key_info *hlsEncryptInfo);
 
 /**
  * Parse a packet.

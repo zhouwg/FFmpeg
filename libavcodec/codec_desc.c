@@ -228,6 +228,7 @@ static const AVCodecDescriptor codec_descriptors[] = {
         .props     = AV_CODEC_PROP_LOSSY | AV_CODEC_PROP_LOSSLESS | AV_CODEC_PROP_REORDER,
         .profiles  = NULL_IF_CONFIG_SMALL(ff_h264_profiles),
     },
+
     {
         .id        = AV_CODEC_ID_INDEO3,
         .type      = AVMEDIA_TYPE_VIDEO,
@@ -1270,6 +1271,7 @@ static const AVCodecDescriptor codec_descriptors[] = {
         .props     = AV_CODEC_PROP_LOSSY | AV_CODEC_PROP_REORDER,
         .profiles  = NULL_IF_CONFIG_SMALL(ff_hevc_profiles),
     },
+
     {
         .id        = AV_CODEC_ID_FIC,
         .type      = AVMEDIA_TYPE_VIDEO,
@@ -2569,6 +2571,7 @@ static const AVCodecDescriptor codec_descriptors[] = {
         .props     = AV_CODEC_PROP_INTRA_ONLY | AV_CODEC_PROP_LOSSY,
         .profiles  = NULL_IF_CONFIG_SMALL(ff_aac_profiles),
     },
+
     {
         .id        = AV_CODEC_ID_AC3,
         .type      = AVMEDIA_TYPE_AUDIO,
@@ -2576,6 +2579,7 @@ static const AVCodecDescriptor codec_descriptors[] = {
         .long_name = NULL_IF_CONFIG_SMALL("ATSC A/52A (AC-3)"),
         .props     = AV_CODEC_PROP_INTRA_ONLY | AV_CODEC_PROP_LOSSY,
     },
+
     {
         .id        = AV_CODEC_ID_DTS,
         .type      = AVMEDIA_TYPE_AUDIO,
@@ -3488,6 +3492,39 @@ static const AVCodecDescriptor codec_descriptors[] = {
         .long_name = NULL_IF_CONFIG_SMALL("AVFrame to AVPacket passthrough"),
         .props     = AV_CODEC_PROP_LOSSLESS,
     },
+#if 1
+    {
+        .id        = AV_CODEC_ID_H264_SAMPLE_AES,
+        .type      = AVMEDIA_TYPE_VIDEO,
+        .name      = "h264_sample_aes",
+        .long_name = NULL_IF_CONFIG_SMALL("H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10"),
+        .props     = AV_CODEC_PROP_LOSSY | AV_CODEC_PROP_LOSSLESS | AV_CODEC_PROP_REORDER,
+        .profiles  = NULL_IF_CONFIG_SMALL(ff_h264_profiles),
+    },
+    {
+        .id        = AV_CODEC_ID_H265_SAMPLE_AES,
+        .type      = AVMEDIA_TYPE_VIDEO,
+        .name      = "h265_sample_aes",
+        .long_name = NULL_IF_CONFIG_SMALL("H.265 / HEVC (High Efficiency Video Coding)"),
+        .props     = AV_CODEC_PROP_LOSSY | AV_CODEC_PROP_REORDER,
+        .profiles  = NULL_IF_CONFIG_SMALL(ff_hevc_profiles),
+    },
+    {
+        .id        = AV_CODEC_ID_AAC_SAMPLE_AES,
+        .type      = AVMEDIA_TYPE_AUDIO,
+        .name      = "aac_sample_aes",
+        .long_name = NULL_IF_CONFIG_SMALL("AAC (Advanced Audio Coding)"),
+        .props     = AV_CODEC_PROP_INTRA_ONLY | AV_CODEC_PROP_LOSSY,
+        .profiles  = NULL_IF_CONFIG_SMALL(ff_aac_profiles),
+    },
+    {
+        .id        = AV_CODEC_ID_AC3_SAMPLE_AES,
+        .type      = AVMEDIA_TYPE_AUDIO,
+        .name      = "ac3_sample_aes",
+        .long_name = NULL_IF_CONFIG_SMALL("ATSC A/52A (AC-3)"),
+        .props     = AV_CODEC_PROP_INTRA_ONLY | AV_CODEC_PROP_LOSSY,
+    },
+#endif
 };
 
 static int descriptor_compare(const void *key, const void *member)

@@ -268,7 +268,7 @@ static av_unused int64_t flac_read_timestamp(AVFormatContext *s, int stream_inde
     if (avio_seek(s->pb, *ppos, SEEK_SET) < 0)
         return AV_NOPTS_VALUE;
 
-    parser = av_parser_init(st->codecpar->codec_id);
+    parser = av_parser_init(st->codecpar->codec_id, NULL);
     if (!parser){
         return AV_NOPTS_VALUE;
     }

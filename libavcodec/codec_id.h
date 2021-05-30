@@ -572,6 +572,13 @@ enum AVCodecID {
                                 * stream (only used by libavformat) */
     AV_CODEC_ID_FFMETADATA = 0x21000,   ///< Dummy codec for streams containing only metadata information.
     AV_CODEC_ID_WRAPPED_AVFRAME = 0x21001, ///< Passthrough codec, AVFrames wrapped in AVPacket
+
+#if 1
+    AV_CODEC_ID_H264_SAMPLE_AES = 0x22000,
+    AV_CODEC_ID_H265_SAMPLE_AES = 0x22001,
+    AV_CODEC_ID_AAC_SAMPLE_AES  = 0x22002,
+    AV_CODEC_ID_AC3_SAMPLE_AES  = 0x22003,
+#endif
 };
 
 /**

@@ -2136,7 +2136,7 @@ decode_intra_mb:
                         if (rc > 1) {
                             ref[list][i] = decode_cabac_mb_ref(sl, list, 4 * i);
                             if (ref[list][i] >= rc) {
-                                av_log(h->avctx, AV_LOG_ERROR, "Reference %d >= %d\n", ref[list][i], rc);
+                                //av_log(h->avctx, AV_LOG_ERROR, "Reference %d >= %d\n", ref[list][i], rc);
                                 return -1;
                             }
                         }else
@@ -2223,7 +2223,7 @@ decode_intra_mb:
                     if (rc > 1) {
                         ref= decode_cabac_mb_ref(sl, list, 0);
                         if (ref >= rc) {
-                            av_log(h->avctx, AV_LOG_ERROR, "Reference %d >= %d\n", ref, rc);
+                            //av_log(h->avctx, AV_LOG_ERROR, "Reference %d >= %d\n", ref, rc);
                             return -1;
                         }
                     }else
@@ -2252,7 +2252,7 @@ decode_intra_mb:
                             if (rc > 1) {
                                 ref= decode_cabac_mb_ref(sl, list, 8 * i);
                                 if (ref >= rc) {
-                                    av_log(h->avctx, AV_LOG_ERROR, "Reference %d >= %d\n", ref, rc);
+                                    //av_log(h->avctx, AV_LOG_ERROR, "Reference %d >= %d\n", ref, rc);
                                     return -1;
                                 }
                             }else
@@ -2288,7 +2288,7 @@ decode_intra_mb:
                             if (rc > 1) {
                                 ref = decode_cabac_mb_ref(sl, list, 4 * i);
                                 if (ref >= rc) {
-                                    av_log(h->avctx, AV_LOG_ERROR, "Reference %d >= %d\n", ref, rc);
+                                    //av_log(h->avctx, AV_LOG_ERROR, "Reference %d >= %d\n", ref, rc);
                                     return -1;
                                 }
                             }else

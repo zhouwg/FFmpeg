@@ -177,6 +177,9 @@ struct MpegTSContext {
 
     AVStream *epg_stream;
     AVBufferPool* pools[32];
+
+    int64_t hlsEncryptInfo_intptr;
+    struct key_info* hlsEncryptInfo;
 };
 
 #define MPEGTS_OPTIONS \
@@ -198,6 +201,7 @@ static const AVOption options[] = {
      {.i64 = 0}, 0, 1, 0 },
     {"skip_clear", "skip clearing programs", offsetof(MpegTSContext, skip_clear), AV_OPT_TYPE_BOOL,
      {.i64 = 0}, 0, 1, 0 },
+    {"hlsEncryptInfo", "HLS encryption info",offsetof(MpegTSContext, hlsEncryptInfo_intptr), AV_OPT_TYPE_INT64, { .i64 = 0 }, INT64_MIN, INT64_MAX, .flags = AV_OPT_FLAG_DECODING_PARAM},
     { NULL },
 };
 
@@ -267,6 +271,12 @@ typedef struct PESContext {
 } PESContext;
 
 extern AVInputFormat ff_mpegts_demuxer;
+
+struct key_info *get_hls_key_info(AVStream *st)
+{
+    PESContext *pc = (PESContext*)st->priv_data;
+    return pc->ts->hlsEncryptInfo;
+}
 
 static struct Program * get_program(MpegTSContext *ts, unsigned int programid)
 {
@@ -793,6 +803,7 @@ static const StreamType ISO_types[] = {
     { 0x03, AVMEDIA_TYPE_AUDIO, AV_CODEC_ID_MP3        },
     { 0x04, AVMEDIA_TYPE_AUDIO, AV_CODEC_ID_MP3        },
     { 0x0f, AVMEDIA_TYPE_AUDIO, AV_CODEC_ID_AAC        },
+
     { 0x10, AVMEDIA_TYPE_VIDEO, AV_CODEC_ID_MPEG4      },
     /* Makito encoder sets stream type 0x11 for AAC,
      * so auto-detect LOAS/LATM instead of hardcoding it. */
@@ -800,14 +811,27 @@ static const StreamType ISO_types[] = {
     { 0x11, AVMEDIA_TYPE_AUDIO, AV_CODEC_ID_AAC_LATM   }, /* LATM syntax */
 #endif
     { 0x1b, AVMEDIA_TYPE_VIDEO, AV_CODEC_ID_H264       },
+
     { 0x1c, AVMEDIA_TYPE_AUDIO, AV_CODEC_ID_AAC        },
     { 0x20, AVMEDIA_TYPE_VIDEO, AV_CODEC_ID_H264       },
     { 0x21, AVMEDIA_TYPE_VIDEO, AV_CODEC_ID_JPEG2000   },
-    { 0x24, AVMEDIA_TYPE_VIDEO, AV_CODEC_ID_HEVC       },
+    { 0x24, AVMEDIA_TYPE_VIDEO, AV_CODEC_ID_HEVC       }, /* aka H265 */
+
     { 0x42, AVMEDIA_TYPE_VIDEO, AV_CODEC_ID_CAVS       },
     { 0xd1, AVMEDIA_TYPE_VIDEO, AV_CODEC_ID_DIRAC      },
     { 0xd2, AVMEDIA_TYPE_VIDEO, AV_CODEC_ID_AVS2       },
     { 0xea, AVMEDIA_TYPE_VIDEO, AV_CODEC_ID_VC1        },
+#if 0
+    { 0xdb, AVMEDIA_TYPE_VIDEO, AV_CODEC_ID_H264_SAMPLE_AES},
+    { 0xe4, AVMEDIA_TYPE_VIDEO, AV_CODEC_ID_H265_SAMPLE_AES}, // aka H265
+    { 0xcf, AVMEDIA_TYPE_AUDIO, AV_CODEC_ID_AAC_SAMPLE_AES},
+    { 0xc1, AVMEDIA_TYPE_AUDIO, AV_CODEC_ID_AC3_SAMPLE_AES},
+#else
+    { 0xdb, AVMEDIA_TYPE_VIDEO, AV_CODEC_ID_H264},
+    { 0xe4, AVMEDIA_TYPE_VIDEO, AV_CODEC_ID_H265}, // aka H265
+    { 0xcf, AVMEDIA_TYPE_AUDIO, AV_CODEC_ID_AAC},
+    { 0xc1, AVMEDIA_TYPE_AUDIO, AV_CODEC_ID_AC3},
+#endif
     { 0 },
 };
 
@@ -819,6 +843,7 @@ static const StreamType HDMV_types[] = {
     { 0x84, AVMEDIA_TYPE_AUDIO,    AV_CODEC_ID_EAC3              },
     { 0x85, AVMEDIA_TYPE_AUDIO,    AV_CODEC_ID_DTS               }, /* DTS HD */
     { 0x86, AVMEDIA_TYPE_AUDIO,    AV_CODEC_ID_DTS               }, /* DTS HD MASTER*/
+    { 0x8a, AVMEDIA_TYPE_AUDIO,    AV_CODEC_ID_DTS               },
     { 0xa1, AVMEDIA_TYPE_AUDIO,    AV_CODEC_ID_EAC3              }, /* E-AC3 Secondary Audio */
     { 0xa2, AVMEDIA_TYPE_AUDIO,    AV_CODEC_ID_DTS               }, /* DTS Express Secondary Audio */
     { 0x90, AVMEDIA_TYPE_SUBTITLE, AV_CODEC_ID_HDMV_PGS_SUBTITLE },
@@ -2445,8 +2470,9 @@ static void pmt_cb(MpegTSFilter *filter, const uint8_t *section, int section_len
         if (!st)
             goto out;
 
-        if (pes && !pes->stream_type)
+        if (pes && !pes->stream_type) {
             mpegts_set_stream_info(st, pes, stream_type, prog_reg_desc);
+        }
 
         add_pid_to_program(prg, pid);
         if (prg) {
@@ -2467,8 +2493,9 @@ static void pmt_cb(MpegTSFilter *filter, const uint8_t *section, int section_len
         for (;;) {
             if (ff_parse_mpeg2_descriptor(ts->stream, st, stream_type, &p,
                                           desc_list_end, mp4_descr,
-                                          mp4_descr_count, pid, ts) < 0)
+                                          mp4_descr_count, pid, ts) < 0) {
                 break;
+            }
 
             if (pes && prog_reg_desc == AV_RL32("HDMV") &&
                 stream_type == 0x83 && pes->sub_st) {
@@ -3066,6 +3093,8 @@ static int mpegts_read_header(AVFormatContext *s)
     AVIOContext *pb   = s->pb;
     int64_t pos, probesize = s->probesize;
     int64_t seekback = FFMAX(s->probesize, (int64_t)ts->resync_size + PROBE_PACKET_MAX_BUF);
+
+    ts->hlsEncryptInfo = (struct key_info*)ts->hlsEncryptInfo_intptr;
 
     s->internal->prefer_codec_framerate = 1;
 

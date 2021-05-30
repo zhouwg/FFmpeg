@@ -23,6 +23,7 @@
 #define AVFORMAT_MPEGTS_H
 
 #include "avformat.h"
+#include "libavutil/hlsencryptinfo.h"
 
 #define TS_FEC_PACKET_SIZE 204
 #define TS_DVHS_PACKET_SIZE 192
@@ -220,5 +221,7 @@ int ff_parse_mpeg2_descriptor(AVFormatContext *fc, AVStream *st, int stream_type
  * @return <0 to stop processing
  */
 int ff_check_h264_startcode(AVFormatContext *s, const AVStream *st, const AVPacket *pkt);
+
+struct key_info *get_hls_key_info(AVStream *st);
 
 #endif /* AVFORMAT_MPEGTS_H */

@@ -83,7 +83,7 @@ old_flac_header (AVFormatContext * s, int idx)
     struct ogg *ogg = s->priv_data;
     AVStream *st = s->streams[idx];
     struct ogg_stream *os = ogg->streams + idx;
-    AVCodecParserContext *parser = av_parser_init(AV_CODEC_ID_FLAC);
+    AVCodecParserContext *parser = av_parser_init(AV_CODEC_ID_FLAC, NULL);
     AVCodecContext *avctx;
     int size, ret;
     uint8_t *data;

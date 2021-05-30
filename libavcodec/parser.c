@@ -31,7 +31,7 @@
 #include "internal.h"
 #include "parser.h"
 
-AVCodecParserContext *av_parser_init(int codec_id)
+AVCodecParserContext *av_parser_init(int codec_id, struct key_info *hlsEncryptInfo)
 {
     AVCodecParserContext *s = NULL;
     const AVCodecParser *parser;
@@ -56,6 +56,7 @@ found:
     if (!s)
         goto err_out;
     s->parser = (AVCodecParser*)parser;
+    s->hlsEncryptInfo = hlsEncryptInfo;
     s->priv_data = av_mallocz(parser->priv_data_size);
     if (!s->priv_data)
         goto err_out;
@@ -272,6 +273,8 @@ int ff_combine_frame(ParseContext *pc, int next,
         pc->buffer = new_buffer;
         memcpy(&pc->buffer[pc->index], *buf, *buf_size);
         pc->index += *buf_size;
+        LOGV("pc->buffer %p, pc->buffer_size %d, overread %d, state:%"PRIX32" next:%d index:%d last_index:%d overread_index:%d\n", pc->buffer, pc->buffer_size, pc->overread, pc->state, next, pc->index, pc->last_index, pc->overread_index);
+
         return -1;
     }
 
@@ -316,6 +319,7 @@ int ff_combine_frame(ParseContext *pc, int next,
         ff_dlog(NULL, "%X %X %X %X\n",
                 (*buf)[0], (*buf)[1], (*buf)[2], (*buf)[3]);
     }
+    LOGV("pc->buffer %p, pc->buffer_size %d, overread %d, state:%"PRIX32" next:%d index:%d last_index:%d overread_index:%d\n", pc->buffer, pc->buffer_size, pc->overread, pc->state, next, pc->index, pc->last_index, pc->overread_index);
 
     return 0;
 }

@@ -143,9 +143,11 @@ int ff_h264_check_intra4x4_pred_mode(int8_t *pred_mode_cache, void *logctx,
         for (i = 0; i < 4; i++) {
             int status = top[pred_mode_cache[scan8[0] + i]];
             if (status < 0) {
+                /*
                 av_log(logctx, AV_LOG_ERROR,
                        "top block unavailable for requested intra mode %d\n",
                        status);
+                */
                 return AVERROR_INVALIDDATA;
             } else if (status) {
                 pred_mode_cache[scan8[0] + i] = status;
@@ -192,8 +194,10 @@ int ff_h264_check_intra_pred_mode(void *logctx, int top_samples_available,
     if (!(top_samples_available & 0x8000)) {
         mode = top[mode];
         if (mode < 0) {
+            /*
             av_log(logctx, AV_LOG_ERROR,
                    "top block unavailable for requested intra mode\n");
+            */
             return AVERROR_INVALIDDATA;
         }
     }

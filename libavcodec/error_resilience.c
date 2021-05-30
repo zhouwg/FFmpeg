@@ -944,7 +944,7 @@ void ff_er_frame_end(ERContext *s)
         if (s->next_pic.f->width  != s->cur_pic.f->width  ||
             s->next_pic.f->height != s->cur_pic.f->height ||
             s->next_pic.f->format != s->cur_pic.f->format) {
-            av_log(s->avctx, AV_LOG_WARNING, "Cannot use next picture in error concealment\n");
+            //av_log(s->avctx, AV_LOG_WARNING, "Cannot use next picture in error concealment\n");
             memset(&s->next_pic, 0, sizeof(s->next_pic));
         }
     }
@@ -1118,8 +1118,10 @@ void ff_er_frame_end(ERContext *s)
         if (error & ER_MV_ERROR)
             mv_error++;
     }
-    av_log(s->avctx, AV_LOG_INFO, "concealing %d DC, %d AC, %d MV errors in %c frame\n",
+    /*
+    av_log(s->avctx, AV_LOG_TRACE, "concealing %d DC, %d AC, %d MV errors in %c frame\n",
            dc_error, ac_error, mv_error, av_get_picture_type_char(s->cur_pic.f->pict_type));
+    */
 
     s->cur_pic.f->decode_error_flags |= FF_DECODE_ERROR_CONCEALMENT_ACTIVE;
 

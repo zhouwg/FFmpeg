@@ -32,15 +32,15 @@
  */
 enum {
     H264_NAL_UNSPECIFIED     = 0,
-    H264_NAL_SLICE           = 1,
-    H264_NAL_DPA             = 2,
+    H264_NAL_SLICE           = 1, // Coded slice of a non-IDR picture
+    H264_NAL_DPA             = 2, // Coded slice data partition A
     H264_NAL_DPB             = 3,
     H264_NAL_DPC             = 4,
-    H264_NAL_IDR_SLICE       = 5,
-    H264_NAL_SEI             = 6,
-    H264_NAL_SPS             = 7,
-    H264_NAL_PPS             = 8,
-    H264_NAL_AUD             = 9,
+    H264_NAL_IDR_SLICE       = 5, // Coded slice of an IDR picture
+    H264_NAL_SEI             = 6, // Supplemental enhancement information
+    H264_NAL_SPS             = 7, // Sequence parameter set
+    H264_NAL_PPS             = 8, // Picture parameter set
+    H264_NAL_AUD             = 9, // Access unit delimiter
     H264_NAL_END_SEQUENCE    = 10,
     H264_NAL_END_STREAM      = 11,
     H264_NAL_FILLER_DATA     = 12,

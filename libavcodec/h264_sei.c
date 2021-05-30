@@ -119,7 +119,7 @@ int ff_h264_sei_process_picture_timing(H264SEIPictureTiming *h, const SPS *sps,
             }
         }
 
-        av_log(logctx, AV_LOG_DEBUG, "ct_type:%X pic_struct:%d\n",
+        av_log(logctx, AV_LOG_TRACE, "ct_type:%X pic_struct:%d\n",
                h->ct_type, h->pic_struct);
     }
 

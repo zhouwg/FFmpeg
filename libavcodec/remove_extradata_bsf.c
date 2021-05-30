@@ -67,7 +67,7 @@ static int remove_extradata_init(AVBSFContext *ctx)
     RemoveExtradataContext *s = ctx->priv_data;
     int ret;
 
-    s->parser = av_parser_init(ctx->par_in->codec_id);
+    s->parser = av_parser_init(ctx->par_in->codec_id, NULL);
 
     if (s->parser) {
         s->avctx = avcodec_alloc_context3(NULL);

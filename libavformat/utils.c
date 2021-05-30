@@ -50,6 +50,11 @@
 #include "url.h"
 
 #include "libavutil/ffversion.h"
+
+//TODO:2021-05-27,weiguo, better solution should be considering
+#include "libavutil/hlsencryptinfo.h"
+#include "libavformat/mpegts.h"
+
 const char av_format_ffversion[] = "FFmpeg version " FFMPEG_VERSION;
 
 static AVMutex avformat_mutex = AV_MUTEX_INITIALIZER;
@@ -532,8 +537,9 @@ int avformat_open_input(AVFormatContext **ps, const char *filename,
     if (s->pb) // must be before any goto fail
         s->flags |= AVFMT_FLAG_CUSTOM_IO;
 
-    if ((ret = av_opt_set_dict(s, &tmp)) < 0)
+    if ((ret = av_opt_set_dict(s, &tmp)) < 0) {
         goto fail;
+    }
 
     if (!(s->url = av_strdup(filename ? filename : ""))) {
         ret = AVERROR(ENOMEM);
@@ -1615,7 +1621,15 @@ FF_ENABLE_DEPRECATION_WARNINGS
                    pkt->size, pkt->duration, pkt->flags);
 
         if (st->need_parsing && !st->parser && !(s->flags & AVFMT_FLAG_NOPARSE)) {
-            st->parser = av_parser_init(st->codecpar->codec_id);
+            LOGV("s->iformat->name:%s", s->iformat->name);
+            struct key_info *hlsEncryptInfo = NULL;
+            if (0 == strcmp(s->iformat->name, "mpegts")) {
+                hlsEncryptInfo = get_hls_key_info(st);
+                st->parser = av_parser_init(st->codecpar->codec_id, hlsEncryptInfo);
+            } else {
+                st->parser = av_parser_init(st->codecpar->codec_id, NULL);
+            }
+
             if (!st->parser) {
                 av_log(s, AV_LOG_VERBOSE, "parser not found for codec "
                        "%s, packets or times may be invalid.\n",
@@ -1628,6 +1642,9 @@ FF_ENABLE_DEPRECATION_WARNINGS
                 st->parser->flags |= PARSER_FLAG_ONCE;
             else if (st->need_parsing == AVSTREAM_PARSE_FULL_RAW)
                 st->parser->flags |= PARSER_FLAG_USE_CODEC_TS;
+            //ff_h264_parser
+            //parser_list
+            LOGV("st->parser->parser->name: %s", st->parser->parser->name);
         }
 
         if (!st->need_parsing || !st->parser) {
@@ -3661,7 +3678,7 @@ FF_ENABLE_DEPRECATION_WARNINGS
 #endif
         // only for the split stuff
         if (!st->parser && !(ic->flags & AVFMT_FLAG_NOPARSE) && st->internal->request_probe <= 0) {
-            st->parser = av_parser_init(st->codecpar->codec_id);
+            st->parser = av_parser_init(st->codecpar->codec_id, NULL);
             if (st->parser) {
                 if (st->need_parsing == AVSTREAM_PARSE_HEADERS) {
                     st->parser->flags |= PARSER_FLAG_COMPLETE_FRAMES;
@@ -4528,6 +4545,8 @@ FF_DISABLE_DEPRECATION_WARNINGS
     if (!st->codec) {
         av_free(st);
         return NULL;
+    }
+    if (st->codec->codec) {
     }
 FF_ENABLE_DEPRECATION_WARNINGS
 #endif
