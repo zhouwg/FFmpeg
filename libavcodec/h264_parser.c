@@ -2,6 +2,8 @@
  * H.26L/H.264/AVC/JVT/14496-10/... parser
  * Copyright (c) 2003 Michael Niedermayer <michaelni@gmx.at>
  *
+ * Copyright (c) 2021 Zhou Weiguo <zhouwg2000@gmail.com> add support with HLS H264 Sample AES, HLS H264 Sample China-SM4 CBC, HLS H264 China-SM4 CBC
+ *
  * This file is part of FFmpeg.
  *
  * FFmpeg is free software; you can redistribute it and/or
@@ -35,6 +37,7 @@
 #include "libavutil/log.h"
 #include "libavutil/mem.h"
 #include "libavutil/pixfmt.h"
+#include "libavformat/internal.h"
 
 #include "avcodec.h"
 #include "get_bits.h"
@@ -48,8 +51,8 @@
 #include "parser.h"
 
 #include "hevc.h"
-#include "libavutil/aesdrm.h"
 #include "libavutil/hlsencryptinfo.h"
+#include "libavutil/hlsdecryptor.h"
 
 typedef struct H264ParseContext {
     ParseContext pc;
@@ -66,11 +69,11 @@ typedef struct H264ParseContext {
     int parse_last_mb;
     int64_t reference_dts;
     int last_frame_num, last_picture_structure;
-    struct key_info hlsEncryptInfo;
 
     int is_clear;
-    int es_mode;
-    AesDecryptor *aesDecryptor;
+    esMode es_mode;
+    HLSDecryptor *hls_decryptor;
+    struct key_info *hls_encryptinfo;
 } H264ParseContext;
 
 
@@ -254,7 +257,7 @@ static int scan_mmco_reset(AVCodecParserContext *s, GetBitContext *gb,
  */
 static inline int parse_nal_units(AVCodecParserContext *s,
                                   AVCodecContext *avctx,
-                                  const uint8_t * const buf, int buf_size, int *keyframe_index, int *keyframe_type)
+                                  const uint8_t * const buf, int buf_size, int *keyframe_index, int *seiframe_index, int *keyframe_type)
 {
     H264ParseContext *p = s->priv_data;
     H2645RBSP rbsp = { NULL };
@@ -268,7 +271,8 @@ static inline int parse_nal_units(AVCodecParserContext *s,
     int ret;
 
     *keyframe_type  =  0;
-    *keyframe_index = 8;
+    *keyframe_index =  8;
+    *seiframe_index =  -1;
 
     /* set some sane default values */
     s->pict_type         = AV_PICTURE_TYPE_I;
@@ -312,6 +316,7 @@ static inline int parse_nal_units(AVCodecParserContext *s,
         if  ((state & 0x1f)  == H264_NAL_IDR_SLICE) {
             *keyframe_type = H264_NAL_IDR_SLICE;
         }
+
         switch (state & 0x1f) {
         case H264_NAL_SLICE:
         case H264_NAL_IDR_SLICE:
@@ -327,7 +332,10 @@ static inline int parse_nal_units(AVCodecParserContext *s,
                     src_length = 1000;
             }
             *keyframe_index = buf_index;
-            //LOGW("found SLICE or IDR_SLICE, buf_size %d, buf_index %d, keyframe_type %d", buf_size, buf_index, *keyframe_type);
+            break;
+        case H264_NAL_SEI:
+            *seiframe_index = buf_index;
+            *keyframe_type  = H264_NAL_SEI;
             break;
         }
         consumed = ff_h2645_extract_rbsp(buf + buf_index, src_length, &rbsp, &nal, 1);
@@ -607,120 +615,167 @@ static void strip03(uint8_t *data, int *size )
 }
 
 /**
-* https://developer.apple.com/library/content/documentation/AudioVideo/Conceptual/HLS_Sample_Encryption/Encryption/Encryption.html
-*
-Encrypted_nal_unit () {
-
-    nal_unit_type_byte                // 1 byte
-
-    unencrypted_leader                // 31 bytes
-
-    while (bytes_remaining() > 0) {
-
-        if (bytes_remaining() > 16) {
-
-            encrypted_block           // 16 bytes
-
-        }
-
-        unencrypted_block             // MIN(144, bytes_remaining()) bytes
-
-    }
-
-}
-
-* @param buf   sample-aes encrypted IDR/Slice data
-* @param size  size of sample-aes encrypted data
-* @param pc    parser context
+* @param pc    H264 parser context
+* @param buf   stripped encrypted IDR/Slice data, beginning with NALU type bytes
+* @param size  size of encrypted data
 */
 #define min(a, b) ((a) < (b) ? (a) : (b))
 #define bool uint8_t
 #define true 1
 #define false 0
-static void decryptSampleAes_NAL(H264ParseContext *pc, uint8_t *buf, int size)
-{
-    uint32_t *clearBytes   = NULL;
-    uint32_t *encryptBytes = NULL;
 
-    uint32_t clear_index   = 0;
-    uint32_t encrypt_index = 0;
-    uint32_t numSample     = 0;
+static void decrypt_nalu(H264ParseContext *pc, uint8_t *buf, int size)
+{
+    uint32_t *clear_bytes   = NULL;
+    uint32_t *encrypt_bytes = NULL;
+
+    uint32_t index          = 0;
+    uint32_t clear_index    = 0;
+    uint32_t encrypt_index  = 0;
+    uint32_t num_samples    = 0;
     uint32_t tmp_nal_size = size;
 
-    bool     isEncryptedNalType = 0;
-    int8_t   nalType = -1;
+    bool     is_encrypted_naltype = 0;
+    int8_t   naltype = -1;
 
     if ((NULL == buf) || ( size <= 0))
         return;
 
-    if (pc->es_mode == SAMPLE_AES_H264) {
-        nalType = buf[0] & 0x1f;
-        isEncryptedNalType = true;
-        bool SEI = (nalType == 6);
+    if ((pc->es_mode == ES_H264_SAMPLE_AES) || (pc->es_mode == ES_H264_SM4_CBC)|| (pc->es_mode == ES_H264_SAMPLE_SM4_CBC)) {
+        naltype = buf[0] & 0x1f;
+        is_encrypted_naltype = true;
+        bool SEI = (naltype == 6);
         if (SEI) {
-            isEncryptedNalType = false;
+            is_encrypted_naltype = false;
         }
-        isEncryptedNalType = (nalType == H264_NAL_SLICE || nalType == H264_NAL_IDR_SLICE);
+        is_encrypted_naltype = (naltype == H264_NAL_SLICE || naltype == H264_NAL_IDR_SLICE);
 
-    } else if (pc->es_mode == SAMPLE_AES_H265) {
-        nalType = (buf[0] & 0x7E) >> 1;
-        isEncryptedNalType = true;
-        bool SEI = (nalType == HEVC_NAL_SEI_PREFIX || nalType == HEVC_NAL_SEI_SUFFIX);
+    } else if ((pc->es_mode == ES_H265_SAMPLE_AES) || (pc->es_mode == ES_H265_SM4_CBC) || (pc->es_mode == ES_H265_SAMPLE_SM4_CBC)) {
+        naltype = (buf[0] & 0x7E) >> 1;
+        is_encrypted_naltype = true;
+        bool SEI = (naltype == HEVC_NAL_SEI_PREFIX || naltype == HEVC_NAL_SEI_SUFFIX);
         if (SEI) {
-            isEncryptedNalType = false;
+            is_encrypted_naltype = false;
         }
-        isEncryptedNalType = ((nalType >= 0 && nalType <= HEVC_NAL_RASL_R) || (nalType >= HEVC_NAL_BLA_W_LP && nalType <= HEVC_NAL_CRA_NUT));
+        is_encrypted_naltype = ((naltype >= 0 && naltype <= HEVC_NAL_RASL_R) || (naltype >= HEVC_NAL_BLA_W_LP && naltype <= HEVC_NAL_CRA_NUT));
     } else {
-        LOGW("es mode is %d, not SAMPLE-AES encrypted content, it shouldn't happen here,pls check...", pc->es_mode);
+        av_log(pc, AV_LOG_WARNING, "unknown es mode  %d, it shouldn't happen here,pls check...", pc->es_mode);
         return;
     }
 
-    if (!isEncryptedNalType) {
+    if (!is_encrypted_naltype) {
         return;
     }
 
-    //10% Sample AES encrypted per 160 bytes, first 1 for leading 32 bytes, second 1 for left bytes
-    clearBytes   = (uint32_t*)av_mallocz(sizeof(uint32_t) * ((size / 160) + 1 + 1));
-    encryptBytes = (uint32_t*)av_mallocz(sizeof(uint32_t) * ((size / 160) + 1 + 1));
-    if ((NULL == clearBytes) || (NULL == encryptBytes)) {
-        LOGW("alloc memory failed");
+    if ((ES_H264_SAMPLE_AES == pc->es_mode) || (ES_H264_SAMPLE_SM4_CBC == pc->es_mode)) {
+        //10%  H264 Sample AES encrypted per 160 bytes, first 1 for leading 32 bytes, second 1 for left bytes
+        //10%  H264 Sample SM4-CBC encrypted per 160 bytes, first 1 for leading 32 bytes, second 1 for left bytes
+        clear_bytes   = (uint32_t*)av_mallocz(sizeof(uint32_t) * ((size / 160) + 1 + 1));
+        encrypt_bytes = (uint32_t*)av_mallocz(sizeof(uint32_t) * ((size / 160) + 1 + 1));
+    } else if (ES_H264_SM4_CBC == pc->es_mode) {
+        //100% H264 SM4-CBC encrypted, first 1 for leading 32 bytes, second 1 for encrypted bytes, the last 1 for left bytes
+
+        clear_bytes   = (uint32_t*)av_mallocz(sizeof(uint32_t) * (1 + 1 + 1));
+        encrypt_bytes = (uint32_t*)av_mallocz(sizeof(uint32_t) * (1 + 1 + 1));
+    }
+
+    if ((NULL == clear_bytes) || (NULL == encrypt_bytes)) {
+        av_log(pc, AV_LOG_WARNING, "clear_bytes or encrypt_bytes is NULL");
         return;
     }
-    clearBytes[clear_index++] =  min(32, tmp_nal_size);
-    tmp_nal_size              -= min(32, tmp_nal_size);
 
+
+    clear_bytes[clear_index++] =  min(32, tmp_nal_size);
+    tmp_nal_size               -= min(32, tmp_nal_size);
+
+    if (pc->es_mode == ES_H264_SM4_CBC) {
+        //section 6.2.3 in GY/T277-2019, http://www.nrta.gov.cn/art/2019/6/15/art_113_46189.html
+        if (tmp_nal_size > 16) {
+            while (tmp_nal_size > 0) {
+                if (tmp_nal_size > 16) {
+                    encrypt_bytes[encrypt_index++] = (tmp_nal_size - tmp_nal_size % 16);
+                    tmp_nal_size  = tmp_nal_size % 16;
+                } else {
+                    encrypt_bytes[encrypt_index++] = 0;
+                }
+
+                if (tmp_nal_size > 0) {
+                    clear_bytes[clear_index++]     =  min(16, tmp_nal_size);
+                    tmp_nal_size                  -= min(16, tmp_nal_size);
+                }
+            }
+
+            if (encrypt_index < clear_index) {
+                encrypt_bytes[encrypt_index++] = 0;
+            }
+
+        } else {
+            clear_bytes[clear_index] = clear_bytes[clear_index] + tmp_nal_size;
+            encrypt_bytes[encrypt_index++] = 0;
+        }
+        goto assemble_done;
+    }
+
+    /*
+    * https://developer.apple.com/library/content/documentation/AudioVideo/Conceptual/HLS_Sample_Encryption/Encryption/Encryption.html
+    *
+    Encrypted_nal_unit () {
+
+        nal_unit_type_byte                // 1 byte
+
+        unencrypted_leader                // 31 bytes
+
+        while (bytes_remaining() > 0) {
+
+            if (bytes_remaining() > 16) {
+
+                encrypted_block           // 16 bytes
+
+            }
+
+            unencrypted_block             // MIN(144, bytes_remaining()) bytes
+
+        }
+
+    }
+
+    and
+        section 6.2.3 in GY/T277-2019, http://www.nrta.gov.cn/art/2019/6/15/art_113_46189.html
+    */
     if (tmp_nal_size > 16) {
         while (tmp_nal_size > 0) {
             if (tmp_nal_size > 16) {
-                encryptBytes[encrypt_index++] = 16;
+                encrypt_bytes[encrypt_index++] = 16;
                 tmp_nal_size -= 16;
             } else {
-                encryptBytes[encrypt_index++] = 0;
+                encrypt_bytes[encrypt_index++] = 0;
             }
 
             if (tmp_nal_size > 0) {
-                clearBytes[clear_index++] =  min(144, tmp_nal_size);
+                clear_bytes[clear_index++] =  min(144, tmp_nal_size);
                 tmp_nal_size              -= min(144, tmp_nal_size);
             }
         }
 
         if (encrypt_index < clear_index) {
-            encryptBytes[encrypt_index++] = 0;
+            encrypt_bytes[encrypt_index++] = 0;
         }
     } else {
-        clearBytes[clear_index] = clearBytes[clear_index] + tmp_nal_size;
-        encryptBytes[encrypt_index++] = 0;
+        clear_bytes[clear_index] = clear_bytes[clear_index] + tmp_nal_size;
+        encrypt_bytes[encrypt_index++] = 0;
     }
 
-    numSample = clear_index;
+assemble_done:
+    num_samples = clear_index;
 
     DrmBufferInfo bufferInfo = { 0 };
-    bufferInfo.numBytesOfClearData     = clearBytes;
-    bufferInfo.numBytesOfEncryptedData = encryptBytes;
-    bufferInfo.numSubSamples           = numSample;
-    pc->aesDecryptor->decrypt(pc->aesDecryptor, buf, &size, &bufferInfo);
-    av_freep(&encryptBytes);
-    av_freep(&clearBytes);
+    bufferInfo.numBytesOfClearData     = clear_bytes;
+    bufferInfo.numBytesOfEncryptedData = encrypt_bytes;
+    bufferInfo.numSubSamples           = num_samples;
+    pc->hls_decryptor->decrypt(pc->hls_decryptor, buf, &size, &bufferInfo);
+cleanup:
+    av_freep(&encrypt_bytes);
+    av_freep(&clear_bytes);
 }
 
 
@@ -734,7 +789,8 @@ static int h264_parse(AVCodecParserContext *s,
     int next;
     int keyFrameIndex = 0;
     int keyFrameType  = 0;
-    int     strippedSize    = 0;
+    int seiFrameIndex = 0;
+    int strippedSize  = 0;
 
     if (!p->got_first) {
         p->got_first = 1;
@@ -763,7 +819,7 @@ static int h264_parse(AVCodecParserContext *s,
         }
     }
 
-    parse_nal_units(s, avctx, buf, buf_size, &keyFrameIndex, &keyFrameType);
+    parse_nal_units(s, avctx, buf, buf_size, &keyFrameIndex, &seiFrameIndex, &keyFrameType);
 
     if (avctx->framerate.num)
         avctx->time_base = av_inv_q(av_mul_q(avctx->framerate, (AVRational){avctx->ticks_per_frame, 1}));
@@ -802,17 +858,101 @@ static int h264_parse(AVCodecParserContext *s,
     }
 
 
+    av_assert0(pc->buffer != NULL);
 
-    if (pc->buffer != NULL) {
-        if (p->es_mode == SAMPLE_AES_H264) {
-            uint8_t *pKeyFrame      = (uint8_t*)buf + keyFrameIndex;
-            int     keyFrameSize    = buf_size - keyFrameIndex;
-            int     keyFrameOrgSize = keyFrameSize;
+    if ((p->es_mode == ES_H264_SAMPLE_AES)
+     || (p->es_mode == ES_H264_SAMPLE_SM4_CBC)
+     || (p->es_mode == ES_H264_SM4_CBC)) {
 
-            strip03(pKeyFrame, &keyFrameSize);
-            strippedSize = keyFrameOrgSize - keyFrameSize;
-            decryptSampleAes_NAL(p, pKeyFrame, keyFrameSize);
+        if (seiFrameIndex > 0) {
+            uint8_t seiPayloadType      = 0;
+            uint8_t seiPayloadLength    = 0;
+            uint8_t *pSeiFrame          = (uint8_t*)buf  + seiFrameIndex;
+            int      seiFrameSize       = 0;
+            int      seiFrameOrgSize    = 0;
+            uint8_t *pCEI               = (uint8_t*)buf  + seiFrameIndex;
+            int      ceiLength          = 0;
+            int      searchOffset       = 0;
+            int      searchLength       = buf_size - seiFrameIndex;
+
+            //search next NALU prefix code
+            while (searchLength > 0) {
+                if ((searchLength >= 3) && (pCEI[searchOffset] == 0x00) && (pCEI[searchOffset +1] == 0x00) && (pCEI[searchOffset + 2] == 0x01)) {
+                    break;
+                }
+                if ((searchLength >= 4) && (pCEI[searchOffset] == 0x00) && (pCEI[searchOffset +1] == 0x00) && (pCEI[searchOffset + 2] == 0x00) && (pCEI[searchOffset + 3] == 0x01)) {
+                    break;
+                }
+                searchOffset++;
+                searchLength--;
+            }
+            seiFrameSize    = searchOffset;
+            seiFrameOrgSize = searchOffset;
+            ceiLength       = searchOffset;
+            //I think strip03 is not required for NAL_SEI
+            strip03(pSeiFrame, &seiFrameSize);
+            av_assert0((seiFrameOrgSize - seiFrameSize) == 0);
+
+            //skip nalu type byte
+            pCEI++;
+            ceiLength -= 1;
+
+            seiPayloadType      = pSeiFrame[1];
+            seiPayloadLength    = pSeiFrame[2];
+
+            //skip payload type byte and payload length byte
+            pCEI      += 2;
+            ceiLength -= 2;
+
+            if (seiFrameSize >= 8) {
+                //CEI UUID defined in section 6.2.3 in GY/T277-2019, http://www.nrta.gov.cn/art/2019/6/15/art_113_46189.html
+                uint8_t CEI_UUID[CEI_UUID_LENGTH] = {0x70,0xC1,0xDB,0x9F,0x66,0xAE,0x41,0x27,0xBF,0xC0,0xBB,0x19,0x81,0x69,0x4B,0x66};
+                if (0 == memcmp(pSeiFrame + 3, CEI_UUID, CEI_UUID_LENGTH)) {
+                    uint8_t encryptionFlag;
+                    uint8_t nextKeyidFlag;
+                    int     ceiOffset  = 0;
+                    int     ivLength   = 0;
+                    uint8_t iv[KEY_LENGTH_BYTES];
+                    uint8_t nextKeyId[KEY_LENGTH_BYTES];
+
+                    //skip CEI UUID
+                    pCEI      += CEI_UUID_LENGTH;
+                    ceiLength -= CEI_UUID_LENGTH;
+
+                    //ok, we got full CEI, parse it according to section 6.2.1 in GY/T277-2019, http://www.nrta.gov.cn/art/2019/6/15/art_113_46189.html
+                    encryptionFlag = (pCEI[ceiOffset] >> 7) & 0x1;
+                    nextKeyidFlag  = (pCEI[ceiOffset] >> 6) & 0x1;
+                    ceiOffset++;
+                    ceiLength--;
+                    if (encryptionFlag) {
+                        memcpy(p->hls_encryptinfo->encryptionKeyId, pCEI + ceiOffset, KEY_LENGTH_BYTES);
+                        ff_data_to_hex(p->hls_encryptinfo->encryptionKeyIdString, pCEI + ceiOffset, KEY_LENGTH_BYTES, 1);
+                        ceiOffset += KEY_LENGTH_BYTES;
+                        ceiLength += KEY_LENGTH_BYTES;
+                    }
+                    if (nextKeyidFlag) {
+                        memcpy(nextKeyId, pCEI + ceiOffset, KEY_LENGTH_BYTES);
+                        ceiOffset += KEY_LENGTH_BYTES;
+                        ceiLength += KEY_LENGTH_BYTES;
+                    }
+                    ivLength = pCEI[ceiOffset];
+                    ceiOffset++;
+                    ceiLength--;
+                    memcpy(iv, pCEI + ceiOffset, IV_LENGTH_BYTES);
+                    av_assert0(0 == memcmp(iv, p->hls_encryptinfo->encryptionIv, IV_LENGTH_BYTES));
+                    ceiOffset += KEY_LENGTH_BYTES;
+                    ceiLength += KEY_LENGTH_BYTES;
+                }
+            }
         }
+
+        uint8_t *pKeyFrame      = (uint8_t*)buf + keyFrameIndex;
+        int     keyFrameSize    = buf_size - keyFrameIndex;
+        int     keyFrameOrgSize = keyFrameSize;
+        strip03(pKeyFrame, &keyFrameSize);
+        strippedSize = keyFrameOrgSize - keyFrameSize;
+        av_assert0(strippedSize >= 0);
+        decrypt_nalu(p, pKeyFrame, keyFrameSize);
     }
 
     *poutbuf      = buf;
@@ -830,7 +970,6 @@ static int h264_split(AVCodecContext *avctx,
     const uint8_t *ptr = buf, *end = buf + buf_size;
     int nalu_type;
 
-    LOGW("h264_split buf_size=%d", buf_size);
     while (ptr < end) {
         ptr = avpriv_find_start_code(ptr, end, &state);
         if ((state & 0xFFFFFF00) != 0x100)
@@ -865,7 +1004,7 @@ static void h264_close(AVCodecParserContext *s)
     ParseContext *pc = &p->pc;
 
     av_freep(&pc->buffer);
-    AesDecryptor_destroy(p->aesDecryptor);
+    HLSDecryptor_destroy(p->hls_decryptor);
 
     ff_h264_sei_uninit(&p->sei);
     ff_h264_ps_uninit(&p->ps);
@@ -878,43 +1017,58 @@ static av_cold int init(AVCodecParserContext *s)
     p->reference_dts  = AV_NOPTS_VALUE;
     p->last_frame_num = INT_MAX;
     p->is_clear       = 1;
+    p->es_mode        = ES_UNKNOWN;
     ff_h264dsp_init(&p->h264dsp, 8, 1);
 
-    if (s->hlsEncryptInfo) {
-        dump_key_info(s->hlsEncryptInfo);
-        if (s->hlsEncryptInfo->isEncrypted) {
-            p->is_clear = 0;
-            p->aesDecryptor = AesDecryptor_init();
-            if (NULL == p->aesDecryptor) {
-                LOGW("AesDecryptor_init failed");
-                return -1;
-            }
-            if (0 == strcmp(s->hlsEncryptInfo->encryptionMethod, "AES-128")) {
-                p->es_mode = H264;
-            } else if (0 == strcmp(s->hlsEncryptInfo->encryptionMethod, "SAMPLE-AES")) {
-                p->es_mode = SAMPLE_AES_H264;
-            } else if (0 == strcmp(s->hlsEncryptInfo->encryptionMethod, "SAMPLE-SM4")) {
-                p->es_mode = SAMPLE_SM4_H264;
-            } else {
-                LOGW("unknown encryptionMethod %s", s->hlsEncryptInfo->encryptionMethod);
-                return -1;
-            }
-
+    if (s->hls_encryptinfo) {
+        dump_key_info(s->hls_encryptinfo);
+        p->hls_encryptinfo = s->hls_encryptinfo;
+        if (s->hls_encryptinfo->isEncrypted) {
             DrmCryptoInfo cryptoInfo;
-            uint32_t aesMode     = AES_MODE_CBC;
-            cryptoInfo.value     = &aesMode;
-            cryptoInfo.valueSize = sizeof(aesMode);
-            //AesDecryptor_setCryptoInfo;
-            p->aesDecryptor->setCryptoInfo(p->aesDecryptor, DRM_CRYPTO_MODE, &cryptoInfo);
+            uint32_t cryptoMode     = CRYPTO_MODE_NONE;
 
-            cryptoInfo.value = s->hlsEncryptInfo->encryptionKey;
-            cryptoInfo.valueSize = sizeof(s->hlsEncryptInfo->encryptionKey) / sizeof(uint8_t);
-            p->aesDecryptor->setCryptoInfo(p->aesDecryptor, DRM_CRYPTO_KEY, &cryptoInfo);
+            p->is_clear = 0;
+            p->hls_decryptor = HLSDecryptor_init();
+            if (NULL == p->hls_decryptor) {
+                av_log(s, AV_LOG_WARNING, "HLSDecryptor_init failed");
+                return 0;
+            }
 
-            cryptoInfo.value = s->hlsEncryptInfo->encryptionIv;
-            cryptoInfo.valueSize = sizeof(s->hlsEncryptInfo->encryptionIv) / sizeof(uint8_t);
-            p->aesDecryptor->setCryptoInfo(p->aesDecryptor, DRM_CRYPTO_IV, &cryptoInfo);
+            if (0 == strcmp(s->hls_encryptinfo->encryptionMethod, "AES-128")) {
+                p->es_mode = ES_H264;
+            } else if (0 == strcmp(s->hls_encryptinfo->encryptionMethod, "SAMPLE-AES")) {
+                p->es_mode = ES_H264_SAMPLE_AES;
+            } else if (0 == strcmp(s->hls_encryptinfo->encryptionMethod, "SAMPLE-SM4-CBC")) {
+                p->es_mode = ES_H264_SAMPLE_SM4_CBC;
+            } else if (0 == strcmp(s->hls_encryptinfo->encryptionMethod, "SM4-CBC")) {
+                p->es_mode = ES_H264_SM4_CBC;
+            } else {
+                av_log(s, AV_LOG_WARNING, "unknown encryptionMethod %s", s->hls_encryptinfo->encryptionMethod);
+                return 0;
+            }
 
+            if ((ES_H264_SAMPLE_AES == p->es_mode) || (ES_H265_SAMPLE_AES == p->es_mode))
+                cryptoMode     = CRYPTO_MODE_AES_CBC;
+            else if ((ES_H264_SAMPLE_SM4_CBC == p->es_mode) || (ES_H265_SAMPLE_SM4_CBC == p->es_mode))
+                cryptoMode     = CRYPTO_MODE_SM4_CBC;
+            else if ((ES_H264_SM4_CBC == p->es_mode) || (ES_H265_SM4_CBC == p->es_mode))
+                cryptoMode     = CRYPTO_MODE_SM4_CBC;
+
+            cryptoInfo.value     = &cryptoMode;
+            cryptoInfo.valueSize = sizeof(cryptoMode);
+            p->hls_decryptor->setCryptoInfo(p->hls_decryptor, DRM_CRYPTO_CRYPTOMODE, &cryptoInfo);
+
+            cryptoInfo.value = &(p->es_mode);
+            cryptoInfo.valueSize = sizeof(p->es_mode);
+            p->hls_decryptor->setCryptoInfo(p->hls_decryptor, DRM_CRYPTO_ESMODE, &cryptoInfo);
+
+            cryptoInfo.value = s->hls_encryptinfo->encryptionKey;
+            cryptoInfo.valueSize = sizeof(s->hls_encryptinfo->encryptionKey) / sizeof(uint8_t);
+            p->hls_decryptor->setCryptoInfo(p->hls_decryptor, DRM_CRYPTO_KEY, &cryptoInfo);
+
+            cryptoInfo.value = s->hls_encryptinfo->encryptionIv;
+            cryptoInfo.valueSize = sizeof(s->hls_encryptinfo->encryptionIv) / sizeof(uint8_t);
+            p->hls_decryptor->setCryptoInfo(p->hls_decryptor, DRM_CRYPTO_IV, &cryptoInfo);
         }
     }
 

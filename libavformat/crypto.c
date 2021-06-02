@@ -156,14 +156,18 @@ static int crypto_open2(URLContext *h, const char *uri, int flags, AVDictionary 
     }
 
     if (flags & AVIO_FLAG_READ) {
-        c->aes_decrypt = av_aes_alloc();
-        if (!c->aes_decrypt) {
-            ret = AVERROR(ENOMEM);
-            goto err;
+        if (0 == strcmp(c->hlsEncryptInfo->encryptionMethod, "AES-128")) {
+            c->aes_decrypt = av_aes_alloc();
+            if (!c->aes_decrypt) {
+                ret = AVERROR(ENOMEM);
+                goto err;
+            }
+            ret = av_aes_init(c->aes_decrypt, c->hlsEncryptInfo->encryptionKey, BLOCKSIZE * 8, 1);
+            if (ret < 0)
+                goto err;
+        } else {
+            av_log(h, AV_LOG_INFO, "passthrough %s", c->hlsEncryptInfo->encryptionMethod);
         }
-        ret = av_aes_init(c->aes_decrypt, c->hlsEncryptInfo->encryptionKey, BLOCKSIZE * 8, 1);
-        if (ret < 0)
-            goto err;
 
         // pass back information about the context we openned
         if (c->hd->is_streamed)
@@ -223,7 +227,9 @@ retry:
         av_aes_crypt(c->aes_decrypt, c->outbuffer, c->inbuffer + c->indata_used, blocks, c->hlsEncryptInfo->encryptionIv, 1);
     if (0 == strcmp(c->hlsEncryptInfo->encryptionMethod, "SAMPLE-AES"))
         memcpy(c->outbuffer, c->inbuffer + c->indata_used, blocks * BLOCKSIZE);
-    if (0 == strcmp(c->hlsEncryptInfo->encryptionMethod, "SAMPLE-SM4"))
+    if (0 == strcmp(c->hlsEncryptInfo->encryptionMethod, "SAMPLE-SM4-CBC"))
+        memcpy(c->outbuffer, c->inbuffer + c->indata_used, blocks * BLOCKSIZE);
+    if (0 == strcmp(c->hlsEncryptInfo->encryptionMethod, "SM4-CBC"))
         memcpy(c->outbuffer, c->inbuffer + c->indata_used, blocks * BLOCKSIZE);
     c->outdata      = BLOCKSIZE * blocks;
     c->outptr       = c->outbuffer;
@@ -396,7 +402,9 @@ static int crypto_close(URLContext *h)
     }
 
     ffurl_closep(&c->hd);
-    av_freep(&c->aes_decrypt);
+    if (0 == strcmp(c->hlsEncryptInfo->encryptionMethod, "AES-128")) {
+        av_freep(&c->aes_decrypt);
+    }
     av_freep(&c->aes_encrypt);
     av_freep(&c->write_buf);
     return ret;

@@ -34,28 +34,34 @@ enum KeyType {
     KEY_NONE,
     KEY_AES_128,
     KEY_SAMPLE_AES,
-    KEY_SAMPLE_SM4
+    KEY_SAMPLE_SM4_CBC,
+    KEY_SM4_CBC
 };
 
-#define MAX_URL_SIZE 4096
+#define MAX_URL_SIZE        4096
+#define KEY_LENGTH_BYTES    16
+#define IV_LENGTH_BYTES     16
+#define CEI_UUID_LENGTH     16
 
 struct key_info {
      char encryptionKeyUri[MAX_URL_SIZE];
      char encryptionKeyRealUri[MAX_URL_SIZE];
      char encryptionMethod[64];
-     char encryptionIvString[64];
-
      char encryptionVideoFormat[64];
-     char encryptionKeyId[64];
+     char encryptionIvString[64];
+     char encryptionKeyString[64];
+     char encryptionKeyIdString[64];
      char encryptionKeyFormat[64];
      char encryptionKeyFormatVersions[64];
-     char encryptionKeyString[64];
-     unsigned char encryptionIv[16];
-     unsigned char encryptionKey[16];
+     unsigned char encryptionIv[IV_LENGTH_BYTES];
+     unsigned char encryptionKey[KEY_LENGTH_BYTES];
+     unsigned char encryptionKeyId[KEY_LENGTH_BYTES];
      int  isEncrypted;
+
+     void *drmSessionHandle;
 };
 
-void dump_key_info(struct key_info *hlsEncryptInfo);
+void dump_key_info(struct key_info *hls_encryptinfo);
 
 #ifdef __cplusplus
     }

@@ -18,19 +18,21 @@
  * License along with FFmpeg; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
+
+#include "log.h"
 #include "hlsencryptinfo.h"
-#include "libavutil/log.h"
 
 void dump_key_info(struct key_info *info)
 {
-    LOGV("\tinfo->encryptionKeyUri      : %s", info->encryptionKeyUri);
-    LOGV("\tinfo->encryptionKeyRealUri  : %s", info->encryptionKeyRealUri);
-    LOGV("\tinfo->encryptionMethod      : %s", info->encryptionMethod);
-    LOGV("\tinfo->encryptionIvString    : %s", info->encryptionIvString);
-    LOGV("\tinfo->encryptionVideoFormat : %s", info->encryptionVideoFormat);
-    LOGV("\tinfo->encryptionKeyId       : %s", info->encryptionKeyId);
-    LOGV("\tinfo->encryptionKeyFormat   : %s", info->encryptionKeyFormat);
-    LOGV("\tinfo->encryptionKeyFormatVer: %s", info->encryptionKeyFormatVersions);
-    LOGV("\tinfo->encryptionKeyString   : %s", info->encryptionKeyString);
-    LOGV("\tinfo->isEncrypted           : %d", info->isEncrypted);
+    av_log(NULL, AV_LOG_INFO, "\tinfo->encryptionKeyUri      : %s", info->encryptionKeyUri);
+    av_log(NULL, AV_LOG_INFO, "\tinfo->encryptionKeyRealUri  : %s", info->encryptionKeyRealUri);
+    av_log(NULL, AV_LOG_INFO, "\tinfo->encryptionMethod      : %s", info->encryptionMethod);
+    av_log(NULL, AV_LOG_INFO, "\tinfo->encryptionIvString    : %s", info->encryptionIvString);
+    av_log(NULL, AV_LOG_INFO, "\tinfo->encryptionVideoFormat : %s", info->encryptionVideoFormat);
+    av_log(NULL, AV_LOG_INFO, "\tinfo->encryptionKeyIdString : %s", info->encryptionKeyId);
+    av_log(NULL, AV_LOG_INFO, "\tinfo->encryptionKeyFormat   : %s", info->encryptionKeyFormat);
+    av_log(NULL, AV_LOG_INFO, "\tinfo->encryptionKeyFormatVer: %s", info->encryptionKeyFormatVersions);
+    av_log(NULL, AV_LOG_INFO, "\tinfo->encryptionKeyString   : %s", info->encryptionKeyString);
+    av_log(NULL, AV_LOG_INFO, "\tinfo->isEncrypted           : %d", info->isEncrypted);
+    av_log(NULL, AV_LOG_INFO, "\tinfo->drmSessionHandle      : %d", info->drmSessionHandle);
 }

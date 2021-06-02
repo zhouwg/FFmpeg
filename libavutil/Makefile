@@ -85,11 +85,11 @@ HEADERS = adler32.h                                                     \
           tea.h                                                         \
           tx.h                                                          \
           film_grain_params.h                                           \
-          cde_log.h                                                     \
           application.h                                                 \
           thread.h                                                      \
+          cde_log.h                                                     \
           hlsencryptinfo.h                                              \
-          aesdrm.h                                                      \
+          hlsdecryptor.h                                                \
 
 HEADERS-$(CONFIG_LZO)                   += lzo.h
 
@@ -180,7 +180,7 @@ OBJS = adler32.o                                                        \
        dns_cache.o                                                      \
        application.o                                                    \
        hlsencryptinfo.o                                                 \
-       aesdrm.o
+       hlsdecryptor.o
 
 
 OBJS-$(CONFIG_CUDA)                     += hwcontext_cuda.o

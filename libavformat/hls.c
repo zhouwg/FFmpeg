@@ -68,7 +68,7 @@ struct segment {
     char *key;
     struct key_info hlsEncryptInfo;
     enum KeyType key_type;
-    uint8_t iv[16];
+    uint8_t iv[IV_LENGTH_BYTES];
     /* associated Media Initialization Section, treated as a segment */
     struct segment *init_section;
 };
@@ -127,7 +127,7 @@ struct playlist {
     unsigned int init_sec_buf_read_offset;
 
     char key_url[MAX_URL_SIZE];
-    uint8_t key[16];
+    uint8_t key[KEY_LENGTH_BYTES];
 
     /* ID3 timestamp handling (elementary audio streams have ID3 timestamps
      * (and possibly other ID3 tags) in the beginning of each segment) */
@@ -720,7 +720,7 @@ static int parse_playlist(HLSContext *c, const char *url,
     int64_t duration = 0;
     enum KeyType key_type = KEY_NONE;
     struct key_info hlsEncryptInfo = {{0}};
-    uint8_t iv[16] = "";
+    uint8_t iv[IV_LENGTH_BYTES] = "";
     int has_iv = 0;
     char key[MAX_URL_SIZE] = "";
     char line[MAX_URL_SIZE];
@@ -794,11 +794,9 @@ static int parse_playlist(HLSContext *c, const char *url,
         if (av_strstart(line, "#EXT-X-STREAM-INF:", &ptr)) {
             is_variant = 1;
             memset(&variant_info, 0, sizeof(variant_info));
-            ff_parse_key_value(ptr, (ff_parse_key_val_cb) handle_variant_args,
-                               &variant_info);
+            ff_parse_key_value(ptr, (ff_parse_key_val_cb) handle_variant_args, &variant_info);
         } else if (av_strstart(line, "#EXT-X-KEY:", &ptr)) {
-            ff_parse_key_value(ptr, (ff_parse_key_val_cb) handle_key_args,
-                               &hlsEncryptInfo);
+            ff_parse_key_value(ptr, (ff_parse_key_val_cb) handle_key_args, &hlsEncryptInfo);
             key_type = KEY_NONE;
             has_iv = 0;
             hlsEncryptInfo.isEncrypted = 0;
@@ -807,20 +805,29 @@ static int parse_playlist(HLSContext *c, const char *url,
                 key_type = KEY_AES_128;
             if (!strcmp(hlsEncryptInfo.encryptionMethod, "SAMPLE-AES"))
                 key_type = KEY_SAMPLE_AES;
-            if (!strcmp(hlsEncryptInfo.encryptionMethod, "SAMPLE-SM4"))
-                key_type = KEY_SAMPLE_SM4;
+            if (!strcmp(hlsEncryptInfo.encryptionMethod, "SAMPLE-SM4-CBC"))
+                key_type = KEY_SAMPLE_SM4_CBC;
+            if (!strcmp(hlsEncryptInfo.encryptionMethod, "SM4-CBC"))
+                key_type = KEY_SM4_CBC;
             if (!strncmp(hlsEncryptInfo.encryptionIvString, "0x", 2) || !strncmp(hlsEncryptInfo.encryptionIvString, "0X", 2)) {
                 ff_hex_to_data(iv, hlsEncryptInfo.encryptionIvString + 2);
                 ff_hex_to_data(hlsEncryptInfo.encryptionIv, hlsEncryptInfo.encryptionIvString + 2);
                 has_iv = 1;
             }
+
+            //no prefix "0x" or "0X" with IV in some DRM system
+            if (IV_LENGTH_BYTES * 2 == strlen(hlsEncryptInfo.encryptionIvString)) {
+                ff_hex_to_data(iv, hlsEncryptInfo.encryptionIvString);
+                ff_hex_to_data(hlsEncryptInfo.encryptionIv, hlsEncryptInfo.encryptionIvString);
+                has_iv = 1;
+            }
+
             if (key_type != KEY_NONE)
                 hlsEncryptInfo.isEncrypted  = 1;
             av_strlcpy(key, hlsEncryptInfo.encryptionKeyUri, MAX_URL_SIZE);
         } else if (av_strstart(line, "#EXT-X-MEDIA:", &ptr)) {
             struct rendition_info info = {{0}};
-            ff_parse_key_value(ptr, (ff_parse_key_val_cb) handle_rendition_args,
-                               &info);
+            ff_parse_key_value(ptr, (ff_parse_key_val_cb) handle_rendition_args, &info);
             new_rendition(c, &info, url);
         } else if (av_strstart(line, "#EXT-X-TARGETDURATION:", &ptr)) {
             ret = ensure_playlist(c, &pls, url);
@@ -857,6 +864,7 @@ static int parse_playlist(HLSContext *c, const char *url,
             cur_init_section = new_init_section(pls, &info, url);
             cur_init_section->key_type = key_type;
             memcpy(&cur_init_section->hlsEncryptInfo, &hlsEncryptInfo, sizeof(hlsEncryptInfo));
+
             if (has_iv) {
                 memcpy(cur_init_section->iv, iv, sizeof(iv));
             } else {
@@ -921,7 +929,8 @@ static int parse_playlist(HLSContext *c, const char *url,
                     int64_t seq = pls->start_seq_no + pls->n_segments;
                     memset(seg->iv, 0, sizeof(seg->iv));
                     AV_WB64(seg->iv + 8, seq);
-                    memcpy(&seg->hlsEncryptInfo.encryptionIv, seg->iv, sizeof(seg->iv));
+                    memcpy(seg->hlsEncryptInfo.encryptionIv, seg->iv, sizeof(seg->iv));
+                    ff_data_to_hex(&hlsEncryptInfo.encryptionIvString, seg->iv, sizeof(seg->iv), 1);
                 }
                 if (key_type != KEY_NONE) {
                     ff_make_absolute_url(tmp_str, sizeof(tmp_str), url, key);
@@ -1276,20 +1285,32 @@ static int open_input(HLSContext *c, struct playlist *pls, struct segment *seg, 
 
     if ((seg->key_type == KEY_AES_128)
      || (seg->key_type == KEY_SAMPLE_AES)
-     || (seg->key_type == KEY_SAMPLE_SM4) ) {
+     || (seg->key_type == KEY_SAMPLE_SM4_CBC)
+     || (seg->key_type == KEY_SM4_CBC) ) {
         char iv[33], key[33], url[MAX_URL_SIZE];
         if (strcmp(seg->key, pls->key_url)) {
-            AVIOContext *pb = NULL;
-            if (open_url(pls->parent, &pb, seg->key, &c->avio_opts, opts, NULL) == 0) {
-                ret = avio_read(pb, pls->key, sizeof(pls->key));
-                if (ret != sizeof(pls->key)) {
-                    av_log(pls->parent, AV_LOG_ERROR, "Unable to read key file %s\n",
-                           seg->key);
+            //TODO:better idea to verify whether fetch key from file in remote HTTP server
+            //or fetch license from remote DRM server
+            if ( (0 == memcmp(seg->hlsEncryptInfo.encryptionMethod, "AES-128", 7))
+              || (0 == memcmp(seg->key + strlen(seg->key) - 4, ".txt", 4)))
+            {
+                //fetch key from file in remote HTTP server
+                AVIOContext *pb = NULL;
+                if (open_url(pls->parent, &pb, seg->key, &c->avio_opts, opts, NULL) == 0) {
+                    ret = avio_read(pb, pls->key, sizeof(pls->key));
+                    if (ret != sizeof(pls->key)) {
+                        av_log(pls->parent, AV_LOG_ERROR, "Unable to read key file %s\n", seg->key);
+                    }
+                    ff_format_io_close(pls->parent, &pb);
+                } else {
+                    av_log(pls->parent, AV_LOG_ERROR, "Unable to open key file %s\n", seg->key);
                 }
-                ff_format_io_close(pls->parent, &pb);
             } else {
-                av_log(pls->parent, AV_LOG_ERROR, "Unable to open key file %s\n",
-                       seg->key);
+                //TODO:fetch license from remote DRM server and then save the DRM session handle to seg->hlsEncryptInfo.drmSessionHanlde
+                av_log(pls->parent, AV_LOG_ERROR,
+                    "DRM license is not supported yet\n");
+                ret = AVERROR_PATCHWELCOME;
+                goto before_cleanup;
             }
             av_strlcpy(pls->key_url, seg->key, sizeof(pls->key_url));
         }
