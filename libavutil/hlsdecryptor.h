@@ -96,9 +96,9 @@ typedef struct HLSDecryptor{
 
     AVCodecParserContext *apc;
 
-    int32_t (*setCryptoInfo)(struct HLSDecryptor *ad, DrmCryptoInfoType infoType, DrmCryptoInfo *pInfo);
-    int32_t (*getCryptoInfo)(struct HLSDecryptor *ad, DrmCryptoInfoType infoType, DrmCryptoInfo *pInfo);
-    int32_t (*decrypt)(struct HLSDecryptor *ad, uint8_t* buffer, uint32_t *bufferSize);
+    int32_t (*set_cryptoinfo)(struct HLSDecryptor *ad, DrmCryptoInfoType info_type, DrmCryptoInfo *pinfo);
+    int32_t (*get_cryptoinfo)(struct HLSDecryptor *ad, DrmCryptoInfoType info_type, DrmCryptoInfo *pinfo);
+    int32_t (*decrypt)(struct HLSDecryptor *ad, uint8_t* buffer, uint32_t *buffer_size);
 } HLSDecryptor;
 
 HLSDecryptor* hls_decryptor_init(void);

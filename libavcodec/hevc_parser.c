@@ -310,7 +310,7 @@ static int hevc_parse(AVCodecParserContext *apc, AVCodecContext *avctx,
                       const uint8_t *buf, int buf_size)
 {
     int next;
-    uint32_t strippedSize  = 0;
+    uint32_t stripped_size  = 0;
 
     HEVCParserContext *ctx = apc->priv_data;
     ParseContext *pc = &ctx->pc;
@@ -344,55 +344,54 @@ static int hevc_parse(AVCodecParserContext *apc, AVCodecContext *avctx,
     if ((apc->hls_encryptinfo->es_type == ES_H265_SAMPLE_AES)
      || (apc->hls_encryptinfo->es_type == ES_H265_SAMPLE_SM4_CBC)
      || (apc->hls_encryptinfo->es_type == ES_H265_SM4_CBC)) {
-        uint8_t *pKeyFrame       = buf;
-        uint32_t keyFrameIndex   = 0;
-        uint32_t keyFrameSize    = 0;
-        uint32_t keyFrameOrgSize = 0;
-        uint32_t searchOffset    = 0;
-        uint32_t searchLength    = buf_size;
-        uint8_t nalu_byte        = 0;
-        uint8_t nalu_type        = 0;
+        uint8_t *pkeyframe        = buf;
+        uint32_t keyframe_index   = 0;
+        uint32_t keyframe_size    = 0;
+        uint32_t keyframe_orgsize = 0;
+        uint32_t search_offset    = 0;
+        uint32_t search_length    = buf_size;
+        uint8_t  nalu_byte        = 0;
+        uint8_t  nalu_type        = 0;
 
-        while (searchLength > 0) {
-            if ((searchLength >= 3) && (pKeyFrame[searchOffset] == 0x00) && (pKeyFrame[searchOffset +1] == 0x00) && (pKeyFrame[searchOffset + 2] == 0x01)) {
-                nalu_byte       = pKeyFrame[searchOffset + 3];
+        while (search_length > 0) {
+            if ((search_length >= 3) && (pkeyframe[search_offset] == 0x00) && (pkeyframe[search_offset +1] == 0x00) && (pkeyframe[search_offset + 2] == 0x01)) {
+                nalu_byte       = pkeyframe[search_offset + 3];
                 nalu_type       = (nalu_byte & 0x7E) >> 1;
                 if (nalu_type >= 0 && nalu_type <= HEVC_NAL_RSV_VCL31) {
-                    keyFrameIndex  = searchOffset + 3;
+                    keyframe_index  = search_offset + 3;
                 }
-                searchOffset += 3;
-                searchLength -= 3;
+                search_offset += 3;
+                search_length -= 3;
                 continue;
             }
-            if ((searchLength >= 4) && (pKeyFrame[searchOffset] == 0x00) && (pKeyFrame[searchOffset +1] == 0x00) && (pKeyFrame[searchOffset + 2] == 0x00) && (pKeyFrame[searchOffset + 3] == 0x01)) {
-                nalu_byte       = pKeyFrame[searchOffset + 4];
+            if ((search_length >= 4) && (pkeyframe[search_offset] == 0x00) && (pkeyframe[search_offset +1] == 0x00) && (pkeyframe[search_offset + 2] == 0x00) && (pkeyframe[search_offset + 3] == 0x01)) {
+                nalu_byte       = pkeyframe[search_offset + 4];
                 nalu_type       = (nalu_byte & 0x7E) >> 1;
                 if (nalu_type >= 0 && nalu_type <= HEVC_NAL_RSV_VCL31) {
-                    keyFrameIndex  = searchOffset + 4;
+                    keyframe_index  = search_offset + 4;
                 }
-                searchOffset += 4;
-                searchLength -= 4;
+                search_offset += 4;
+                search_length -= 4;
             }
-            searchOffset++;
-            searchLength--;
+            search_offset++;
+            search_length--;
         }
 
         //ok, got the encrypted NALU
-        if (0 != keyFrameIndex) {
-            pKeyFrame       = (uint8_t*)buf + keyFrameIndex;
-            keyFrameSize    = buf_size - keyFrameIndex;
-            keyFrameOrgSize = keyFrameSize;
-            hls_decryptor_strip03(pKeyFrame, &keyFrameSize);
-            strippedSize = keyFrameOrgSize - keyFrameSize;
-            av_assert0(strippedSize >= 0);
-            ctx->hls_decryptor->decrypt(ctx->hls_decryptor, pKeyFrame, &keyFrameSize);
+        if (0 != keyframe_index) {
+            pkeyframe       = (uint8_t*)buf + keyframe_index;
+            av_assert0(buf_size > keyframe_index);
+            keyframe_size    = buf_size - keyframe_index;
+            keyframe_orgsize = keyframe_size;
+            hls_decryptor_strip03(pkeyframe, &keyframe_size);
+            stripped_size = keyframe_orgsize - keyframe_size;
+            av_assert0(stripped_size >= 0);
+            ctx->hls_decryptor->decrypt(ctx->hls_decryptor, pkeyframe, &keyframe_size);
         }
-    } else {
-        av_log(NULL, AV_LOG_WARNING, "invalid es type %d for h265 parser, it shouldn't happen here,pls check...", apc->hls_encryptinfo->es_type);
     }
 
     *poutbuf      = buf;
-    *poutbuf_size = buf_size - strippedSize;
+    *poutbuf_size = buf_size - stripped_size;
 
     return next;
 }

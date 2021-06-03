@@ -57,9 +57,9 @@ static const EVP_CIPHER *sm4_get_mode(DrmCryptoMode mode)
     }
 }
 
-static int32_t hlsdecryptor_sm4cbc_decrypt_internal(HLSDecryptor *ad, uint8_t *buffer, uint32_t bufferSize, uint8_t *key, uint8_t *iv)
+static int32_t hlsdecryptor_sm4cbc_decrypt_internal(HLSDecryptor *ad, uint8_t *buffer, uint32_t buffer_size, uint8_t *key, uint8_t *iv)
 {
-    uint32_t outLen = 0;
+    uint32_t out_len = 0;
     EVP_CIPHER_CTX *ctx = NULL;
     EVP_CIPHER *cipher  = NULL;
 
@@ -71,35 +71,35 @@ static int32_t hlsdecryptor_sm4cbc_decrypt_internal(HLSDecryptor *ad, uint8_t *b
     EVP_DecryptInit_ex(ctx, cipher, NULL, key, iv);
 
     EVP_CIPHER_CTX_set_padding(ctx, 0);
-    if (!EVP_DecryptUpdate(ctx, buffer, &outLen, buffer, bufferSize)) {
+    if (!EVP_DecryptUpdate(ctx, buffer, &out_len, buffer, buffer_size)) {
         EVP_CIPHER_CTX_free(ctx);
         return -1;
     }
     EVP_CIPHER_CTX_free(ctx);
 
-    av_assert0(bufferSize == outLen);
+    av_assert0(buffer_size == out_len);
 
     return 0;
 }
 
-static int32_t hlsdecryptor_sm4cbc_decrypt(HLSDecryptor *ad, uint8_t *buffer, uint32_t bufferSize, const DrmBufferInfo *pBufferInfo)
+static int32_t hlsdecryptor_sm4cbc_decrypt(HLSDecryptor *ad, uint8_t *buffer, uint32_t buffer_size, const DrmBufferInfo *pbufferinfo)
 {
-    uint8_t* ptr    = NULL;
+    uint8_t  *ptr   = NULL;
     uint32_t index  = 0;
     uint32_t offset = 0;
     uint32_t size   = 0;
     int32_t  result = 0;
 
     //sanity check could be removed for production
-    for (index = 0; index < pBufferInfo->num_subsamples; index++) {
-        PRE_CHECK(index, pBufferInfo->num_encrypteddata[index], pBufferInfo->num_encrypteddata[index] % AES_BLOCK_LENGTH_BYTES == 0);
+    for (index = 0; index < pbufferinfo->num_subsamples; index++) {
+        PRE_CHECK(index, pbufferinfo->num_encrypteddata[index], pbufferinfo->num_encrypteddata[index] % AES_BLOCK_LENGTH_BYTES == 0);
     }
 
     //section 6.2.3 in GY/T277-2019, http://www.nrta.gov.cn/art/2019/6/15/art_113_46189.html
-    for (index = 0; index < pBufferInfo->num_subsamples; index++) {
-        offset += pBufferInfo->num_cleardata[index];
-        PRE_CHECK(index, pBufferInfo->num_encrypteddata[index], pBufferInfo->num_encrypteddata[index] % AES_BLOCK_LENGTH_BYTES == 0);
-        size = pBufferInfo->num_encrypteddata[index];
+    for (index = 0; index < pbufferinfo->num_subsamples; index++) {
+        offset += pbufferinfo->num_cleardata[index];
+        PRE_CHECK(index, pbufferinfo->num_encrypteddata[index], pbufferinfo->num_encrypteddata[index] % AES_BLOCK_LENGTH_BYTES == 0);
+        size = pbufferinfo->num_encrypteddata[index];
         if (size > 0) {
             ptr = buffer + offset;
             CHECK(size % SM4_BLOCK_LENGTH_BYTES == 0);
@@ -108,23 +108,23 @@ static int32_t hlsdecryptor_sm4cbc_decrypt(HLSDecryptor *ad, uint8_t *buffer, ui
                 av_log(NULL, AV_LOG_WARNING, "sm4cbc decrypt failed");
                 return result;
             }
-            offset += pBufferInfo->num_encrypteddata[index];
+            offset += pbufferinfo->num_encrypteddata[index];
         }
     }
     return result;
 }
 
-static int32_t hlsdecryptor_samplesm4cbc_decrypt(HLSDecryptor *ad, uint8_t *buffer, uint32_t bufferSize, const DrmBufferInfo *pBufferInfo)
+static int32_t hlsdecryptor_samplesm4cbc_decrypt(HLSDecryptor *ad, uint8_t *buffer, uint32_t buffer_size, const DrmBufferInfo *pbuffinfo)
 {
-    uint8_t* ptr    = NULL;
+    uint8_t  *ptr   = NULL;
     uint32_t index  = 0;
     uint32_t offset = 0;
     uint32_t size   = 0;
     int32_t  result = 0;
 
     //sanity check could be removed for production
-    for (index = 0; index < pBufferInfo->num_subsamples; index++) {
-        PRE_CHECK(index, pBufferInfo->num_encrypteddata[index], pBufferInfo->num_encrypteddata[index] % AES_BLOCK_LENGTH_BYTES == 0);
+    for (index = 0; index < pbuffinfo->num_subsamples; index++) {
+        PRE_CHECK(index, pbuffinfo->num_encrypteddata[index], pbuffinfo->num_encrypteddata[index] % AES_BLOCK_LENGTH_BYTES == 0);
     }
 
     //TODO:Sample SM4-CBC not working at the moment
@@ -132,7 +132,7 @@ static int32_t hlsdecryptor_samplesm4cbc_decrypt(HLSDecryptor *ad, uint8_t *buff
     return result;
 }
 
-static int32_t hlsdecryptor_aes_decrypt_internal(HLSDecryptor *ad, uint8_t *buffer, uint32_t bufferSize, uint8_t *key, uint8_t *iv)
+static int32_t hlsdecryptor_aes_decrypt_internal(HLSDecryptor *ad, uint8_t *buffer, uint32_t buffer_size, uint8_t *key, uint8_t *iv)
 {
     AES_KEY aes_key;
     uint8_t aes_iv[AES_BLOCK_LENGTH_BYTES];
@@ -151,7 +151,7 @@ static int32_t hlsdecryptor_aes_decrypt_internal(HLSDecryptor *ad, uint8_t *buff
         break;
 
     case CRYPTO_MODE_AES_CBC:
-        AES_cbc_encrypt(buffer, buffer, bufferSize, &aes_key, aes_iv, AES_DECRYPT);
+        AES_cbc_encrypt(buffer, buffer, buffer_size, &aes_key, aes_iv, AES_DECRYPT);
         break;
 
     default:
@@ -161,24 +161,24 @@ static int32_t hlsdecryptor_aes_decrypt_internal(HLSDecryptor *ad, uint8_t *buff
     return 0;
 }
 
-static int32_t hlsdecryptor_decrypt_containerbase(HLSDecryptor *ad, uint8_t *buffer, uint32_t *bufferSize)
+static int32_t hlsdecryptor_decrypt_containerbase(HLSDecryptor *ad, uint8_t *buffer, uint32_t *buffer_size)
 {
     uint32_t n =  0;
-    uint32_t encryptedDataSize = *bufferSize;
+    uint32_t encrypted_size = *buffer_size;
     int32_t  result = 0;
 
-    if (encryptedDataSize % AES_BLOCK_LENGTH_BYTES != 0) {
+    if (encrypted_size % AES_BLOCK_LENGTH_BYTES != 0) {
         av_log(NULL, AV_LOG_WARNING, "encrypted data is not 16 bytes alignment");
         return -1;
     }
 
-    result = hlsdecryptor_aes_decrypt_internal(ad, buffer, encryptedDataSize, ad->key, ad->iv);
+    result = hlsdecryptor_aes_decrypt_internal(ad, buffer, encrypted_size, ad->key, ad->iv);
     if (result != 0) {
         av_log(NULL, AV_LOG_WARNING, "aes decrypt failed");
         return result;
     }
 
-    n = encryptedDataSize;
+    n = encrypted_size;
     CHECK_GT(n, 0u);
 
     if (ad->need_depadding) {
@@ -192,16 +192,16 @@ static int32_t hlsdecryptor_decrypt_containerbase(HLSDecryptor *ad, uint8_t *buf
 
         n -= pad;
     }
-    *bufferSize = n;
+    *buffer_size = n;
 
     return result;
 }
 
-static int32_t hlsdecryptor_decrypt_esbase(HLSDecryptor *ad, uint8_t *buffer, uint32_t bufferSize, const DrmBufferInfo *pBufferInfo)
+static int32_t hlsdecryptor_decrypt_esbase(HLSDecryptor *ad, uint8_t *buffer, uint32_t buffer_size, const DrmBufferInfo *pbufferinfo)
 {
     DrmBufferInfo info          = {0};
-    uint32_t clearDataSize      = 0;
-    uint32_t encryptedDataSize  = bufferSize;
+    uint32_t clear_size      = 0;
+    uint32_t encrypted_size  = buffer_size;
 
     uint32_t size    = 0;
     uint32_t index   = 0;
@@ -211,22 +211,22 @@ static int32_t hlsdecryptor_decrypt_esbase(HLSDecryptor *ad, uint8_t *buffer, ui
     uint8_t packet_iv[AES_BLOCK_LENGTH_BYTES];
     uint8_t temp_iv[AES_BLOCK_LENGTH_BYTES];
 
-    if (NULL == pBufferInfo) {
-        info.num_cleardata     = &clearDataSize;
-        info.num_encrypteddata = &encryptedDataSize;
+    if (NULL == pbufferinfo) {
+        info.num_cleardata     = &clear_size;
+        info.num_encrypteddata = &encrypted_size;
         info.num_subsamples           = 1;
-        pBufferInfo                  = &info;
+        pbufferinfo                  = &info;
     }
 
     memcpy(packet_iv, ad->iv, AES_BLOCK_LENGTH_BYTES);
-    for (index = 0; index < pBufferInfo->num_subsamples; index++) {
-        offset += pBufferInfo->num_cleardata[index];
+    for (index = 0; index < pbufferinfo->num_subsamples; index++) {
+        offset += pbufferinfo->num_cleardata[index];
 
         //the sub encrypted buffer size should be multiple of AES_BLOCK_LENGTH_BYTES,
         //otherwise following decrypt process need to be modified accordingly
-        PRE_CHECK(index, pBufferInfo->num_encrypteddata[index], pBufferInfo->num_encrypteddata[index] % AES_BLOCK_LENGTH_BYTES == 0);
+        PRE_CHECK(index, pbufferinfo->num_encrypteddata[index], pbufferinfo->num_encrypteddata[index] % AES_BLOCK_LENGTH_BYTES == 0);
 
-        size = pBufferInfo->num_encrypteddata[index];
+        size = pbufferinfo->num_encrypteddata[index];
         if (size > 0) {
             ptr = buffer + offset;
             CHECK(size % AES_BLOCK_LENGTH_BYTES == 0);
@@ -237,36 +237,36 @@ static int32_t hlsdecryptor_decrypt_esbase(HLSDecryptor *ad, uint8_t *buffer, ui
                 return result;
             }
             memcpy(packet_iv, temp_iv, AES_BLOCK_LENGTH_BYTES);
-            offset += pBufferInfo->num_encrypteddata[index];
+            offset += pbufferinfo->num_encrypteddata[index];
         }
     }
     return result;
 }
 
-static int32_t hlsdecryptor_set_cryptoinfo(HLSDecryptor *ad, DrmCryptoInfoType infoCode, DrmCryptoInfo *pInfo)
+static int32_t hlsdecryptor_set_cryptoinfo(HLSDecryptor *ad, DrmCryptoInfoType info_code, DrmCryptoInfo *pinfo)
 {
     pthread_mutex_lock(&ad->lock_decryptor);
 
-    switch (infoCode) {
+    switch (info_code) {
         case DRM_CRYPTO_CRYPTOMODE:
-            ad->crypto_mode = *((int32_t*)pInfo->value);
+            ad->crypto_mode = *((int32_t*)pinfo->value);
             break;
         case DRM_CRYPTO_ESMODE:
-            ad->es_type = *((int32_t*)pInfo->value);
+            ad->es_type = *((int32_t*)pinfo->value);
             break;
         case DRM_CRYPTO_KEY:
-            CHECK(pInfo->value_size == AES_BLOCK_LENGTH_BYTES);
-            memcpy(ad->key, pInfo->value, pInfo->value_size);
+            CHECK(pinfo->value_size == AES_BLOCK_LENGTH_BYTES);
+            memcpy(ad->key, pinfo->value, pinfo->value_size);
             break;
         case DRM_CRYPTO_IV:
-            CHECK(pInfo->value_size == AES_BLOCK_LENGTH_BYTES);
-            memcpy(ad->iv, pInfo->value, pInfo->value_size);
+            CHECK(pinfo->value_size == AES_BLOCK_LENGTH_BYTES);
+            memcpy(ad->iv, pinfo->value, pinfo->value_size);
             break;
         case DRM_CRYPTO_ENCRYPT_LEVEL:
-            ad->encrypt_level = *((int32_t*)pInfo->value);
+            ad->encrypt_level = *((int32_t*)pinfo->value);
             break;
         case DRM_CRYPTO_NEED_DEPADDING:
-            ad->need_depadding = *((int32_t*)pInfo->value);
+            ad->need_depadding = *((int32_t*)pinfo->value);
             break;
         default:
             break;
@@ -276,30 +276,30 @@ static int32_t hlsdecryptor_set_cryptoinfo(HLSDecryptor *ad, DrmCryptoInfoType i
     return 0;
 }
 
-static int32_t hlsdecryptor_get_cryptoinfo(HLSDecryptor *ad, DrmCryptoInfoType infoCode, DrmCryptoInfo* pInfo)
+static int32_t hlsdecryptor_get_cryptoinfo(HLSDecryptor *ad, DrmCryptoInfoType info_code, DrmCryptoInfo* pinfo)
 {
     pthread_mutex_lock(&ad->lock_decryptor);
 
-    switch (infoCode) {
+    switch (info_code) {
         case DRM_CRYPTO_CRYPTOMODE:
-            pInfo->value = &ad->crypto_mode;
-            pInfo->value_size = sizeof(ad->crypto_mode);
+            pinfo->value = &ad->crypto_mode;
+            pinfo->value_size = sizeof(ad->crypto_mode);
             break;
         case DRM_CRYPTO_ESMODE:
-            pInfo->value = &ad->es_type;
-            pInfo->value_size = sizeof(ad->es_type);
+            pinfo->value = &ad->es_type;
+            pinfo->value_size = sizeof(ad->es_type);
             break;
         case DRM_CRYPTO_ENCRYPT_LEVEL:
-            pInfo->value_size = sizeof(ad->encrypt_level);
-            *((int32_t*)pInfo->value) = ad->encrypt_level;
+            pinfo->value_size = sizeof(ad->encrypt_level);
+            *((int32_t*)pinfo->value) = ad->encrypt_level;
             break;
         case DRM_CRYPTO_NEED_DEPADDING:
-            pInfo->value_size = sizeof(ad->need_depadding);
-            *((int32_t*)pInfo->value) = ad->need_depadding;
+            pinfo->value_size = sizeof(ad->need_depadding);
+            *((int32_t*)pinfo->value) = ad->need_depadding;
             break;
         default:
-            pInfo->value = NULL;
-            pInfo->value_size = 0;
+            pinfo->value = NULL;
+            pinfo->value_size = 0;
             break;
     }
     pthread_mutex_unlock(&ad->lock_decryptor);
@@ -326,9 +326,9 @@ static int32_t hlsdecryptor_decrypt(HLSDecryptor *ad, uint8_t *buffer, uint32_t 
     uint32_t buffer_size    = *pbuffer_size;
     uint32_t tmp_nal_size   = buffer_size;
 
-    int8_t   naltype                  = -1;
     int32_t  result                   = 0;
-    bool     is_encrypted_naltype     = 0;
+    int8_t   naltype                  = -1;
+    bool     is_encrypted_naltype     = false;
     struct   KeyInfo *hls_encryptinfo = NULL;
 
     if ((NULL == ad) || (CRYPTO_MODE_NONE == ad->crypto_mode) || (ES_UNKNOWN == ad->es_type)) {
@@ -345,20 +345,9 @@ static int32_t hlsdecryptor_decrypt(HLSDecryptor *ad, uint8_t *buffer, uint32_t 
 
     if ((ES_H264_SAMPLE_AES == hls_encryptinfo->es_type) || (ES_H264_SM4_CBC == hls_encryptinfo->es_type)|| (ES_H264_SAMPLE_SM4_CBC == hls_encryptinfo->es_type)) {
         naltype = buffer[0] & 0x1f;
-        is_encrypted_naltype = true;
-        bool SEI = (naltype == 6);
-        if (SEI) {
-            is_encrypted_naltype = false;
-        }
         is_encrypted_naltype = (naltype == H264_NAL_SLICE || naltype == H264_NAL_IDR_SLICE);
-
     } else if (ES_H265_SAMPLE_AES == hls_encryptinfo->es_type) {
         naltype = (buffer[0] & 0x7E) >> 1;
-        is_encrypted_naltype = true;
-        bool SEI = (naltype == HEVC_NAL_SEI_PREFIX || naltype == HEVC_NAL_SEI_SUFFIX);
-        if (SEI) {
-            is_encrypted_naltype = false;
-        }
         is_encrypted_naltype = ((naltype >= 0 && naltype <= HEVC_NAL_RASL_R) || (naltype >= HEVC_NAL_BLA_W_LP && naltype <= HEVC_NAL_CRA_NUT));
     } else if ((ES_H265_SM4_CBC == hls_encryptinfo->es_type) || (ES_H265_SAMPLE_SM4_CBC == hls_encryptinfo->es_type)) {
         naltype = (buffer[0] & 0x7E) >> 1;
@@ -465,7 +454,7 @@ static int32_t hlsdecryptor_decrypt(HLSDecryptor *ad, uint8_t *buffer, uint32_t 
             }
 
             if (tmp_nal_size > 0) {
-                clear_bytes[clear_index++] =  min(144, tmp_nal_size);
+                clear_bytes[clear_index++] = min(144, tmp_nal_size);
                 tmp_nal_size              -= min(144, tmp_nal_size);
             }
         }
@@ -474,7 +463,7 @@ static int32_t hlsdecryptor_decrypt(HLSDecryptor *ad, uint8_t *buffer, uint32_t 
             encrypt_bytes[encrypt_index++] = 0;
         }
     } else {
-        clear_bytes[clear_index] = clear_bytes[clear_index] + tmp_nal_size;
+        clear_bytes[clear_index]       = clear_bytes[clear_index] + tmp_nal_size;
         encrypt_bytes[encrypt_index++] = 0;
     }
 
@@ -503,7 +492,6 @@ assemble_done:
     }
     pthread_mutex_unlock(&ad->lock_decryptor);
 
-cleanup:
     av_freep(&encrypt_bytes);
     av_freep(&clear_bytes);
 
@@ -516,12 +504,12 @@ cleanup:
 //all internal function's name: hlsdecryptor_xxx
 void hls_decryptor_strip03(uint8_t *data, int *size)
 {
-    uint8_t *p = data;
+    uint8_t *p   = data;
     uint8_t *end = data + *size;
 
     while (( end - p ) > 3) {
         if ( p[0] == 0x0 && p[1] == 0x0 && p[2] == 3 ) {
-            memmove( p + 2, p + 3, (end - (p + 3)) );
+            memmove(p + 2, p + 3, (end - (p + 3)));
             *size -= 1;
             p     += 2;
             end   -= 1;
@@ -537,6 +525,7 @@ HLSDecryptor *hls_decryptor_init2(AVCodecParserContext *apc, ESType es_type)
     HLSDecryptor *hls_decryptor = NULL;
 
     av_assert0(NULL != apc);
+    av_assert0(NULL != apc->hls_encryptinfo);
 
     if (apc->hls_encryptinfo->is_encrypted) {
         DrmCryptoInfo crypto_info;
@@ -590,19 +579,19 @@ HLSDecryptor *hls_decryptor_init2(AVCodecParserContext *apc, ESType es_type)
 
         crypto_info.value     = &crypto_mode;
         crypto_info.value_size = sizeof(crypto_mode);
-        hls_decryptor->setCryptoInfo(hls_decryptor, DRM_CRYPTO_CRYPTOMODE, &crypto_info);
+        hls_decryptor->set_cryptoinfo(hls_decryptor, DRM_CRYPTO_CRYPTOMODE, &crypto_info);
 
         crypto_info.value = &(apc->hls_encryptinfo->es_type);
         crypto_info.value_size = sizeof(apc->hls_encryptinfo->es_type);
-        hls_decryptor->setCryptoInfo(hls_decryptor, DRM_CRYPTO_ESMODE, &crypto_info);
+        hls_decryptor->set_cryptoinfo(hls_decryptor, DRM_CRYPTO_ESMODE, &crypto_info);
 
         crypto_info.value = apc->hls_encryptinfo->encryption_key;
         crypto_info.value_size = sizeof(apc->hls_encryptinfo->encryption_key) / sizeof(uint8_t);
-        hls_decryptor->setCryptoInfo(hls_decryptor, DRM_CRYPTO_KEY, &crypto_info);
+        hls_decryptor->set_cryptoinfo(hls_decryptor, DRM_CRYPTO_KEY, &crypto_info);
 
         crypto_info.value = apc->hls_encryptinfo->encryption_iv;
         crypto_info.value_size = sizeof(apc->hls_encryptinfo->encryption_iv) / sizeof(uint8_t);
-        hls_decryptor->setCryptoInfo(hls_decryptor, DRM_CRYPTO_IV, &crypto_info);
+        hls_decryptor->set_cryptoinfo(hls_decryptor, DRM_CRYPTO_IV, &crypto_info);
 
         return hls_decryptor;
     }
@@ -631,9 +620,9 @@ HLSDecryptor *hls_decryptor_init()
     hls_decryptor->crypto_mode    = CRYPTO_MODE_NONE;
     pthread_mutex_init(&hls_decryptor->lock_decryptor, NULL);
 
-    hls_decryptor->getCryptoInfo  = hlsdecryptor_get_cryptoinfo;
-    hls_decryptor->setCryptoInfo  = hlsdecryptor_set_cryptoinfo;
-    hls_decryptor->decrypt        = hlsdecryptor_decrypt;
+    hls_decryptor->get_cryptoinfo  = hlsdecryptor_get_cryptoinfo;
+    hls_decryptor->set_cryptoinfo  = hlsdecryptor_set_cryptoinfo;
+    hls_decryptor->decrypt         = hlsdecryptor_decrypt;
 
     return hls_decryptor;
 }
