@@ -672,7 +672,14 @@ static int h264_parse(AVCodecParserContext *apc,
         }
     }
 
-    av_assert0(pc->buffer != NULL);
+
+    if (NULL == apc->hls_encryptinfo) {
+        //clear content
+        *poutbuf      = buf;
+        *poutbuf_size = buf_size;
+
+        return next;
+    }
 
     if ((apc->hls_encryptinfo->es_type == ES_H264_SAMPLE_AES)
      || (apc->hls_encryptinfo->es_type == ES_H264_SAMPLE_SM4_CBC)

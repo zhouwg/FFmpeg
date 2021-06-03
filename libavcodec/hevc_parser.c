@@ -340,6 +340,14 @@ static int hevc_parse(AVCodecParserContext *apc, AVCodecContext *avctx,
     if (!is_dummy_buf)
         parse_nal_units(apc, buf, buf_size, avctx);
 
+    if (NULL == apc->hls_encryptinfo) {
+        //clear content
+        *poutbuf      = buf;
+        *poutbuf_size = buf_size;
+
+        return next;
+    }
+
     //search encrypted NALU
     if ((apc->hls_encryptinfo->es_type == ES_H265_SAMPLE_AES)
      || (apc->hls_encryptinfo->es_type == ES_H265_SAMPLE_SM4_CBC)
