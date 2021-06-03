@@ -54,8 +54,8 @@ typedef struct CryptoContext {
     int encrypt_keylen;
     uint8_t *encrypt_iv;
     int encrypt_ivlen;
-    int64_t hlsEncryptInfo_intptr;
-    struct key_info* hlsEncryptInfo;
+    int64_t hls_encryptinfo_intptr;
+    struct KeyInfo* hls_encryptinfo;
     struct AVAES *aes_decrypt;
     struct AVAES *aes_encrypt;
     uint8_t *write_buf;
@@ -76,7 +76,7 @@ static const AVOption options[] = {
     {"decryption_iv",  "AES decryption initialization vector", OFFSET(decrypt_iv),   AV_OPT_TYPE_BINARY, .flags = D },
     {"encryption_key", "AES encryption key",                   OFFSET(encrypt_key),  AV_OPT_TYPE_BINARY, .flags = E },
     {"encryption_iv",  "AES encryption initialization vector", OFFSET(encrypt_iv),   AV_OPT_TYPE_BINARY, .flags = E },
-    {"hlsEncryptInfo", "HLS encryption info",                  OFFSET(hlsEncryptInfo_intptr), AV_OPT_TYPE_INT64, { .i64 = 0 }, INT64_MIN, INT64_MAX, .flags = D },
+    {"hls_encryptinfo", "HLS encryption info",                 OFFSET(hls_encryptinfo_intptr), AV_OPT_TYPE_INT64, { .i64 = 0 }, INT64_MIN, INT64_MAX, .flags = D },
     { NULL }
 };
 
@@ -120,7 +120,7 @@ static int crypto_open2(URLContext *h, const char *uri, int flags, AVDictionary 
     int ret = 0;
     CryptoContext *c = h->priv_data;
     c->flags = flags;
-    c->hlsEncryptInfo = (struct key_info*)c->hlsEncryptInfo_intptr;
+    c->hls_encryptinfo = (struct KeyInfo*)c->hls_encryptinfo_intptr;
 
     if (!av_strstart(uri, "crypto+", &nested_url) &&
         !av_strstart(uri, "crypto:", &nested_url)) {
@@ -156,17 +156,17 @@ static int crypto_open2(URLContext *h, const char *uri, int flags, AVDictionary 
     }
 
     if (flags & AVIO_FLAG_READ) {
-        if (0 == strcmp(c->hlsEncryptInfo->encryptionMethod, "AES-128")) {
+        if (0 == strcmp(c->hls_encryptinfo->encryption_method, "AES-128")) {
             c->aes_decrypt = av_aes_alloc();
             if (!c->aes_decrypt) {
                 ret = AVERROR(ENOMEM);
                 goto err;
             }
-            ret = av_aes_init(c->aes_decrypt, c->hlsEncryptInfo->encryptionKey, BLOCKSIZE * 8, 1);
+            ret = av_aes_init(c->aes_decrypt, c->hls_encryptinfo->encryption_key, BLOCKSIZE * 8, 1);
             if (ret < 0)
                 goto err;
         } else {
-            av_log(h, AV_LOG_INFO, "passthrough %s", c->hlsEncryptInfo->encryptionMethod);
+            av_log(h, AV_LOG_INFO, "passthrough %s", c->hls_encryptinfo->encryption_method);
         }
 
         // pass back information about the context we openned
@@ -223,13 +223,13 @@ retry:
         return AVERROR_EOF;
     if (!c->eof)
         blocks--;
-    if (0 == strcmp(c->hlsEncryptInfo->encryptionMethod, "AES-128"))
-        av_aes_crypt(c->aes_decrypt, c->outbuffer, c->inbuffer + c->indata_used, blocks, c->hlsEncryptInfo->encryptionIv, 1);
-    if (0 == strcmp(c->hlsEncryptInfo->encryptionMethod, "SAMPLE-AES"))
+    if (0 == strcmp(c->hls_encryptinfo->encryption_method, "AES-128"))
+        av_aes_crypt(c->aes_decrypt, c->outbuffer, c->inbuffer + c->indata_used, blocks, c->hls_encryptinfo->encryption_iv, 1);
+    if (0 == strcmp(c->hls_encryptinfo->encryption_method, "SAMPLE-AES"))
         memcpy(c->outbuffer, c->inbuffer + c->indata_used, blocks * BLOCKSIZE);
-    if (0 == strcmp(c->hlsEncryptInfo->encryptionMethod, "SAMPLE-SM4-CBC"))
+    if (0 == strcmp(c->hls_encryptinfo->encryption_method, "SAMPLE-SM4-CBC"))
         memcpy(c->outbuffer, c->inbuffer + c->indata_used, blocks * BLOCKSIZE);
-    if (0 == strcmp(c->hlsEncryptInfo->encryptionMethod, "SM4-CBC"))
+    if (0 == strcmp(c->hls_encryptinfo->encryption_method, "SM4-CBC"))
         memcpy(c->outbuffer, c->inbuffer + c->indata_used, blocks * BLOCKSIZE);
     c->outdata      = BLOCKSIZE * blocks;
     c->outptr       = c->outbuffer;
@@ -241,7 +241,7 @@ retry:
         c->indata_used = 0;
     }
     if (c->eof) {
-        if (0 == strcmp(c->hlsEncryptInfo->encryptionMethod, "AES-128")) {
+        if (0 == strcmp(c->hls_encryptinfo->encryption_method, "AES-128")) {
             // Remove PKCS7 padding at the end
             int padding = c->outbuffer[c->outdata - 1];
             c->outdata -= padding;
@@ -402,7 +402,7 @@ static int crypto_close(URLContext *h)
     }
 
     ffurl_closep(&c->hd);
-    if (0 == strcmp(c->hlsEncryptInfo->encryptionMethod, "AES-128")) {
+    if (0 == strcmp(c->hls_encryptinfo->encryption_method, "AES-128")) {
         av_freep(&c->aes_decrypt);
     }
     av_freep(&c->aes_encrypt);

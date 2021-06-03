@@ -1622,10 +1622,10 @@ FF_ENABLE_DEPRECATION_WARNINGS
 
         if (st->need_parsing && !st->parser && !(s->flags & AVFMT_FLAG_NOPARSE)) {
             LOGV("s->iformat->name:%s", s->iformat->name);
-            struct key_info *hlsEncryptInfo = NULL;
+            struct KeyInfo *hls_encryptinfo = NULL;
             if (0 == strcmp(s->iformat->name, "mpegts")) {
-                hlsEncryptInfo = get_hls_key_info(st);
-                st->parser = av_parser_init(st->codecpar->codec_id, hlsEncryptInfo);
+                hls_encryptinfo = get_hls_keyinfo(st);
+                st->parser = av_parser_init(st->codecpar->codec_id, hls_encryptinfo);
             } else {
                 st->parser = av_parser_init(st->codecpar->codec_id, NULL);
             }

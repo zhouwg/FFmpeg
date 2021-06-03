@@ -178,8 +178,8 @@ struct MpegTSContext {
     AVStream *epg_stream;
     AVBufferPool* pools[32];
 
-    int64_t hlsEncryptInfo_intptr;
-    struct key_info* hlsEncryptInfo;
+    int64_t hls_encryptinfo_intptr;
+    struct KeyInfo* hls_encryptinfo;
 };
 
 #define MPEGTS_OPTIONS \
@@ -201,7 +201,7 @@ static const AVOption options[] = {
      {.i64 = 0}, 0, 1, 0 },
     {"skip_clear", "skip clearing programs", offsetof(MpegTSContext, skip_clear), AV_OPT_TYPE_BOOL,
      {.i64 = 0}, 0, 1, 0 },
-    {"hlsEncryptInfo", "HLS encryption info",offsetof(MpegTSContext, hlsEncryptInfo_intptr), AV_OPT_TYPE_INT64, { .i64 = 0 }, INT64_MIN, INT64_MAX, .flags = AV_OPT_FLAG_DECODING_PARAM},
+    {"hls_encryptinfo", "HLS encryption info",offsetof(MpegTSContext, hls_encryptinfo_intptr), AV_OPT_TYPE_INT64, { .i64 = 0 }, INT64_MIN, INT64_MAX, .flags = AV_OPT_FLAG_DECODING_PARAM},
     { NULL },
 };
 
@@ -272,10 +272,10 @@ typedef struct PESContext {
 
 extern AVInputFormat ff_mpegts_demuxer;
 
-struct key_info *get_hls_key_info(AVStream *st)
+struct KeyInfo *get_hls_keyinfo(AVStream *st)
 {
     PESContext *pc = (PESContext*)st->priv_data;
-    return pc->ts->hlsEncryptInfo;
+    return pc->ts->hls_encryptinfo;
 }
 
 static struct Program * get_program(MpegTSContext *ts, unsigned int programid)
@@ -3094,7 +3094,7 @@ static int mpegts_read_header(AVFormatContext *s)
     int64_t pos, probesize = s->probesize;
     int64_t seekback = FFMAX(s->probesize, (int64_t)ts->resync_size + PROBE_PACKET_MAX_BUF);
 
-    ts->hlsEncryptInfo = (struct key_info*)ts->hlsEncryptInfo_intptr;
+    ts->hls_encryptinfo = (struct KeyInfo*)ts->hls_encryptinfo_intptr;
 
     s->internal->prefer_codec_framerate = 1;
 

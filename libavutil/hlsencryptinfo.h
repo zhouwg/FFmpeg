@@ -30,38 +30,52 @@
     extern "C" {
 #endif
 
-enum KeyType {
-    KEY_NONE,
+typedef enum KeyType {
     KEY_AES_128,
     KEY_SAMPLE_AES,
     KEY_SAMPLE_SM4_CBC,
-    KEY_SM4_CBC
+    KEY_SM4_CBC,
+    KEY_NONE
+}KeyType;
+
+typedef enum ESType{
+    ES_H264,
+    ES_H264_SAMPLE_AES,
+    ES_H264_SAMPLE_SM4_CBC,
+    ES_H264_SM4_CBC,
+    ES_H265,
+    ES_H265_SAMPLE_AES,
+    ES_H265_SAMPLE_SM4_CBC,
+    ES_H265_SM4_CBC,
+    ES_UNKNOWN
+}ESType;
+
+#define MAX_URL_SIZE            4096
+#define KEY_LENGTH_BYTES        16
+#define IV_LENGTH_BYTES         16
+#define CEI_UUID_LENGTH         16
+#define KEYINFO_ITEM_LENGTH     64
+
+struct KeyInfo {
+     unsigned char encryption_keyuri[MAX_URL_SIZE];
+     unsigned char encryption_keyrealuri[MAX_URL_SIZE];
+     unsigned char encryption_method[KEYINFO_ITEM_LENGTH];
+     unsigned char encryption_videoformat[KEYINFO_ITEM_LENGTH];
+     unsigned char encryption_ivstring[KEYINFO_ITEM_LENGTH];
+     unsigned char encryption_keystring[KEYINFO_ITEM_LENGTH];
+     unsigned char encryption_keyidstring[KEYINFO_ITEM_LENGTH];
+     unsigned char encryption_keyformat[KEYINFO_ITEM_LENGTH];
+     unsigned char encryption_keyformatversions[KEYINFO_ITEM_LENGTH];
+     unsigned char encryption_iv[IV_LENGTH_BYTES];
+     unsigned char encryption_key[KEY_LENGTH_BYTES];
+     unsigned char encryption_keyid[KEY_LENGTH_BYTES];
+
+     ESType es_type;
+     int  is_encrypted;
+     void *drm_sessionhandle;
 };
 
-#define MAX_URL_SIZE        4096
-#define KEY_LENGTH_BYTES    16
-#define IV_LENGTH_BYTES     16
-#define CEI_UUID_LENGTH     16
-
-struct key_info {
-     char encryptionKeyUri[MAX_URL_SIZE];
-     char encryptionKeyRealUri[MAX_URL_SIZE];
-     char encryptionMethod[64];
-     char encryptionVideoFormat[64];
-     char encryptionIvString[64];
-     char encryptionKeyString[64];
-     char encryptionKeyIdString[64];
-     char encryptionKeyFormat[64];
-     char encryptionKeyFormatVersions[64];
-     unsigned char encryptionIv[IV_LENGTH_BYTES];
-     unsigned char encryptionKey[KEY_LENGTH_BYTES];
-     unsigned char encryptionKeyId[KEY_LENGTH_BYTES];
-     int  isEncrypted;
-
-     void *drmSessionHandle;
-};
-
-void dump_key_info(struct key_info *hls_encryptinfo);
+void dump_key_info(struct KeyInfo *hls_encryptinfo);
 
 #ifdef __cplusplus
     }

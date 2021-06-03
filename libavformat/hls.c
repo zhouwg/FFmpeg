@@ -66,8 +66,8 @@ struct segment {
     int64_t size;
     char *url;
     char *key;
-    struct key_info hlsEncryptInfo;
-    enum KeyType key_type;
+    struct KeyInfo hls_encryptinfo;
+    KeyType key_type;
     uint8_t iv[IV_LENGTH_BYTES];
     /* associated Media Initialization Section, treated as a segment */
     struct segment *init_section;
@@ -369,30 +369,30 @@ static void handle_variant_args(struct variant_info *info, const char *key,
 
 
 
-static void handle_key_args(struct key_info *info, const char *key,
+static void handle_key_args(struct KeyInfo *info, const char *key,
                             int key_len, char **dest, int *dest_len)
 {
     if (!strncmp(key, "METHOD=", key_len)) {
-        *dest     =        info->encryptionMethod;
-        *dest_len = sizeof(info->encryptionMethod);
+        *dest     =        info->encryption_method;
+        *dest_len = sizeof(info->encryption_method);
     } else if (!strncmp(key, "URI=", key_len)) {
-        *dest     =        info->encryptionKeyUri;
-        *dest_len = sizeof(info->encryptionKeyUri);
+        *dest     =        info->encryption_keyuri;
+        *dest_len = sizeof(info->encryption_keyuri);
     } else if (!strncmp(key, "IV=", key_len)) {
-        *dest     =        info->encryptionIvString;
-        *dest_len = sizeof(info->encryptionIvString);
+        *dest     =        info->encryption_ivstring;
+        *dest_len = sizeof(info->encryption_ivstring);
     } else if (!strncmp(key, "VIDEOFORMAT=", key_len)) {
-        *dest     =        info->encryptionVideoFormat;
-        *dest_len = sizeof(info->encryptionVideoFormat);
+        *dest     =        info->encryption_videoformat;
+        *dest_len = sizeof(info->encryption_videoformat);
     } else if (!strncmp(key, "KEYFORMAT=", key_len)) {
-        *dest     =        info->encryptionKeyFormat;
-        *dest_len = sizeof(info->encryptionKeyFormat);
+        *dest     =        info->encryption_keyformat;
+        *dest_len = sizeof(info->encryption_keyformat);
     } else if (!strncmp(key, "KEYFORMATVERSIONS=", key_len)) {
-        *dest     =        info->encryptionKeyFormatVersions;
-        *dest_len = sizeof(info->encryptionKeyFormatVersions);
+        *dest     =        info->encryption_keyformatversions;
+        *dest_len = sizeof(info->encryption_keyformatversions);
     } else if (!strncmp(key, "KEYID=", key_len)) {
-        *dest     =        info->encryptionKeyId;
-        *dest_len = sizeof(info->encryptionKeyId);
+        *dest     =        info->encryption_keyid;
+        *dest_len = sizeof(info->encryption_keyid);
     }
 }
 
@@ -718,8 +718,8 @@ static int parse_playlist(HLSContext *c, const char *url,
 {
     int ret = 0, is_segment = 0, is_variant = 0;
     int64_t duration = 0;
-    enum KeyType key_type = KEY_NONE;
-    struct key_info hlsEncryptInfo = {{0}};
+    KeyType key_type = KEY_NONE;
+    struct KeyInfo hls_encryptinfo = {{0}};
     uint8_t iv[IV_LENGTH_BYTES] = "";
     int has_iv = 0;
     char key[MAX_URL_SIZE] = "";
@@ -796,35 +796,35 @@ static int parse_playlist(HLSContext *c, const char *url,
             memset(&variant_info, 0, sizeof(variant_info));
             ff_parse_key_value(ptr, (ff_parse_key_val_cb) handle_variant_args, &variant_info);
         } else if (av_strstart(line, "#EXT-X-KEY:", &ptr)) {
-            ff_parse_key_value(ptr, (ff_parse_key_val_cb) handle_key_args, &hlsEncryptInfo);
+            ff_parse_key_value(ptr, (ff_parse_key_val_cb) handle_key_args, &hls_encryptinfo);
             key_type = KEY_NONE;
             has_iv = 0;
-            hlsEncryptInfo.isEncrypted = 0;
+            hls_encryptinfo.is_encrypted = 0;
 
-            if (!strcmp(hlsEncryptInfo.encryptionMethod, "AES-128"))
+            if (!strcmp(hls_encryptinfo.encryption_method, "AES-128"))
                 key_type = KEY_AES_128;
-            if (!strcmp(hlsEncryptInfo.encryptionMethod, "SAMPLE-AES"))
+            if (!strcmp(hls_encryptinfo.encryption_method, "SAMPLE-AES"))
                 key_type = KEY_SAMPLE_AES;
-            if (!strcmp(hlsEncryptInfo.encryptionMethod, "SAMPLE-SM4-CBC"))
+            if (!strcmp(hls_encryptinfo.encryption_method, "SAMPLE-SM4-CBC"))
                 key_type = KEY_SAMPLE_SM4_CBC;
-            if (!strcmp(hlsEncryptInfo.encryptionMethod, "SM4-CBC"))
+            if (!strcmp(hls_encryptinfo.encryption_method, "SM4-CBC"))
                 key_type = KEY_SM4_CBC;
-            if (!strncmp(hlsEncryptInfo.encryptionIvString, "0x", 2) || !strncmp(hlsEncryptInfo.encryptionIvString, "0X", 2)) {
-                ff_hex_to_data(iv, hlsEncryptInfo.encryptionIvString + 2);
-                ff_hex_to_data(hlsEncryptInfo.encryptionIv, hlsEncryptInfo.encryptionIvString + 2);
+            if (!strncmp(hls_encryptinfo.encryption_ivstring, "0x", 2) || !strncmp(hls_encryptinfo.encryption_ivstring, "0X", 2)) {
+                ff_hex_to_data(iv, hls_encryptinfo.encryption_ivstring + 2);
+                ff_hex_to_data(hls_encryptinfo.encryption_iv, hls_encryptinfo.encryption_ivstring + 2);
                 has_iv = 1;
             }
 
             //no prefix "0x" or "0X" with IV in some DRM system
-            if (IV_LENGTH_BYTES * 2 == strlen(hlsEncryptInfo.encryptionIvString)) {
-                ff_hex_to_data(iv, hlsEncryptInfo.encryptionIvString);
-                ff_hex_to_data(hlsEncryptInfo.encryptionIv, hlsEncryptInfo.encryptionIvString);
+            if (IV_LENGTH_BYTES * 2 == strlen(hls_encryptinfo.encryption_ivstring)) {
+                ff_hex_to_data(iv, hls_encryptinfo.encryption_ivstring);
+                ff_hex_to_data(hls_encryptinfo.encryption_iv, hls_encryptinfo.encryption_ivstring);
                 has_iv = 1;
             }
 
             if (key_type != KEY_NONE)
-                hlsEncryptInfo.isEncrypted  = 1;
-            av_strlcpy(key, hlsEncryptInfo.encryptionKeyUri, MAX_URL_SIZE);
+                hls_encryptinfo.is_encrypted  = 1;
+            av_strlcpy(key, hls_encryptinfo.encryption_keyuri, MAX_URL_SIZE);
         } else if (av_strstart(line, "#EXT-X-MEDIA:", &ptr)) {
             struct rendition_info info = {{0}};
             ff_parse_key_value(ptr, (ff_parse_key_val_cb) handle_rendition_args, &info);
@@ -863,7 +863,7 @@ static int parse_playlist(HLSContext *c, const char *url,
                                &info);
             cur_init_section = new_init_section(pls, &info, url);
             cur_init_section->key_type = key_type;
-            memcpy(&cur_init_section->hlsEncryptInfo, &hlsEncryptInfo, sizeof(hlsEncryptInfo));
+            memcpy(&cur_init_section->hls_encryptinfo, &hls_encryptinfo, sizeof(hls_encryptinfo));
 
             if (has_iv) {
                 memcpy(cur_init_section->iv, iv, sizeof(iv));
@@ -922,15 +922,15 @@ static int parse_playlist(HLSContext *c, const char *url,
                     ret = AVERROR(ENOMEM);
                     goto fail;
                 }
-                memcpy(&seg->hlsEncryptInfo, &hlsEncryptInfo, sizeof(hlsEncryptInfo));
+                memcpy(&seg->hls_encryptinfo, &hls_encryptinfo, sizeof(hls_encryptinfo));
                 if (has_iv) {
                     memcpy(seg->iv, iv, sizeof(iv));
                 } else {
                     int64_t seq = pls->start_seq_no + pls->n_segments;
                     memset(seg->iv, 0, sizeof(seg->iv));
                     AV_WB64(seg->iv + 8, seq);
-                    memcpy(seg->hlsEncryptInfo.encryptionIv, seg->iv, sizeof(seg->iv));
-                    ff_data_to_hex(&hlsEncryptInfo.encryptionIvString, seg->iv, sizeof(seg->iv), 1);
+                    memcpy(seg->hls_encryptinfo.encryption_iv, seg->iv, sizeof(seg->iv));
+                    ff_data_to_hex(&hls_encryptinfo.encryption_ivstring, seg->iv, sizeof(seg->iv), 1);
                 }
                 if (key_type != KEY_NONE) {
                     ff_make_absolute_url(tmp_str, sizeof(tmp_str), url, key);
@@ -940,8 +940,7 @@ static int parse_playlist(HLSContext *c, const char *url,
                         goto fail;
                     }
                     seg->key = av_strdup(tmp_str);
-                    //TODO:buffer overflow attack of hlsEncryptInfo.encryptionKeyRealUri
-                    memcpy(seg->hlsEncryptInfo.encryptionKeyRealUri, tmp_str, sizeof(tmp_str));
+                    memcpy(seg->hls_encryptinfo.encryption_keyrealuri, tmp_str, sizeof(tmp_str));
                     if (!seg->key) {
                         av_free(seg);
                         ret = AVERROR(ENOMEM);
@@ -1291,7 +1290,7 @@ static int open_input(HLSContext *c, struct playlist *pls, struct segment *seg, 
         if (strcmp(seg->key, pls->key_url)) {
             //TODO:better idea to verify whether fetch key from file in remote HTTP server
             //or fetch license from remote DRM server
-            if ( (0 == memcmp(seg->hlsEncryptInfo.encryptionMethod, "AES-128", 7))
+            if ( (0 == memcmp(seg->hls_encryptinfo.encryption_method, "AES-128", 7))
               || (0 == memcmp(seg->key + strlen(seg->key) - 4, ".txt", 4)))
             {
                 //fetch key from file in remote HTTP server
@@ -1306,21 +1305,20 @@ static int open_input(HLSContext *c, struct playlist *pls, struct segment *seg, 
                     av_log(pls->parent, AV_LOG_ERROR, "Unable to open key file %s\n", seg->key);
                 }
             } else {
-                //TODO:fetch license from remote DRM server and then save the DRM session handle to seg->hlsEncryptInfo.drmSessionHanlde
-                av_log(pls->parent, AV_LOG_ERROR,
-                    "DRM license is not supported yet\n");
+                //TODO:fetch license from remote DRM server and then save the DRM session handle to seg->hls_encryptinfo.drmSessionHanlde
+                av_log(pls->parent, AV_LOG_ERROR, "DRM license is not supported yet\n");
                 ret = AVERROR_PATCHWELCOME;
                 goto before_cleanup;
             }
             av_strlcpy(pls->key_url, seg->key, sizeof(pls->key_url));
         }
-        memcpy(&seg->hlsEncryptInfo.encryptionKey, pls->key, sizeof(pls->key));
-        memcpy(&seg->hlsEncryptInfo.encryptionIv,  seg->iv,  sizeof(seg->iv));
+        memcpy(&seg->hls_encryptinfo.encryption_key, pls->key, sizeof(pls->key));
+        memcpy(&seg->hls_encryptinfo.encryption_iv,  seg->iv,  sizeof(seg->iv));
         ff_data_to_hex(iv, seg->iv, sizeof(seg->iv), 0);
         ff_data_to_hex(key, pls->key, sizeof(pls->key), 0);
         iv[32] = key[32] = '\0';
-        memcpy(&seg->hlsEncryptInfo.encryptionIvString,  iv, sizeof(iv));
-        memcpy(&seg->hlsEncryptInfo.encryptionKeyString, key, sizeof(key));
+        memcpy(&seg->hls_encryptinfo.encryption_ivstring,  iv, sizeof(iv));
+        memcpy(&seg->hls_encryptinfo.encryption_keystring, key, sizeof(key));
         if (strstr(seg->url, "://"))
             snprintf(url, sizeof(url), "crypto+%s", seg->url);
         else
@@ -1328,7 +1326,7 @@ static int open_input(HLSContext *c, struct playlist *pls, struct segment *seg, 
 
         av_dict_set(&opts, "key", key, 0);
         av_dict_set(&opts, "iv", iv, 0);
-        av_dict_set_int(&opts, "hlsEncryptInfo", (int64_t)&seg->hlsEncryptInfo, 0);
+        av_dict_set_int(&opts, "hls_encryptinfo", (int64_t)&seg->hls_encryptinfo, 0);
 
         ret = open_url(pls->parent, in, url, &c->avio_opts, opts, &is_http);
         if (ret < 0) {
@@ -2068,7 +2066,7 @@ static int hls_read_header(AVFormatContext *s)
 
         AVDictionary *opts = NULL;
         av_dict_set(&opts, "multiple_requests", "1", 0);
-        av_dict_set_int(&opts, "hlsEncryptInfo", (int64_t)&pls->segments[0]->hlsEncryptInfo, 0);
+        av_dict_set_int(&opts, "hls_encryptinfo", (int64_t)&pls->segments[0]->hls_encryptinfo, 0);
         ret = avformat_open_input(&pls->ctx, pls->segments[0]->url, in_fmt, &opts);
         if (ret < 0)
             goto fail;

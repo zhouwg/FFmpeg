@@ -3540,7 +3540,7 @@ typedef struct AVCodecParserContext {
      * one returned by a decoder.
      */
     int format;
-    struct key_info *hls_encryptinfo;
+    struct KeyInfo *hls_encryptinfo;
 } AVCodecParserContext;
 
 typedef struct AVCodecParser {
@@ -3582,7 +3582,7 @@ void av_register_codec_parser(AVCodecParser *parser);
 #endif
 //AVCodecParserContext *av_parser_init(int codec_id);
 
-AVCodecParserContext *av_parser_init(int codec_id, struct key_info *hls_encryptinfo);
+AVCodecParserContext *av_parser_init(int codec_id, struct KeyInfo *hls_encryptinfo);
 
 /**
  * Parse a packet.

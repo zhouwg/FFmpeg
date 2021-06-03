@@ -31,7 +31,7 @@
 #include "internal.h"
 #include "parser.h"
 
-AVCodecParserContext *av_parser_init(int codec_id, struct key_info *hls_encryptinfo)
+AVCodecParserContext *av_parser_init(int codec_id, struct KeyInfo *hls_encryptinfo)
 {
     AVCodecParserContext *s = NULL;
     const AVCodecParser *parser;

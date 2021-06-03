@@ -31,7 +31,11 @@
 #include <string.h>
 #include <stdint.h>
 #include <ctype.h>
+#include <pthread.h>
 #include <inttypes.h>
+
+#include "hlsencryptinfo.h"
+#include "libavcodec/avcodec.h"
 
 #ifdef __cplusplus
     extern "C" {
@@ -41,19 +45,6 @@
 #define AES_BLOCK_LENGTH_BYTES  16
 #define SM4_BLOCK_LENGTH_BYTES  16
 
-
-typedef enum esMode{
-        ES_H264,
-        ES_H264_SAMPLE_AES,
-        ES_H264_SAMPLE_SM4_CBC,
-        ES_H264_SM4_CBC,
-        ES_H265,
-        ES_H265_SAMPLE_AES,
-        ES_H265_SAMPLE_SM4_CBC,
-        ES_H265_SM4_CBC,
-        ES_UNKNOWN
-}esMode;
-
 enum DrmCryptoLevel {
    DRM_CRYPTO_ENCRYPT_UNKNOWN,
    DRM_CRYPTO_ENCRYPT_NONE,
@@ -61,7 +52,7 @@ enum DrmCryptoLevel {
    DRM_CRYPTO_ENCRYPT_ES_BASED
 };
 
-enum DrmCryptoInfoType {
+typedef enum DrmCryptoInfoType {
     DRM_CRYPTO_IV = 0,
     DRM_CRYPTO_KEY,
     DRM_CRYPTO_KEYID,
@@ -69,10 +60,9 @@ enum DrmCryptoInfoType {
     DRM_CRYPTO_CRYPTOMODE,
     DRM_CRYPTO_ENCRYPT_LEVEL,
     DRM_CRYPTO_NEED_DEPADDING
-};
+}DrmCryptoInfoType;
 
-
-typedef enum cryptoMode {
+typedef enum DrmCryptoMode {
      CRYPTO_MODE_NONE = 0,
      CRYPTO_MODE_AES_CTR  = 1,
      CRYPTO_MODE_AES_CBC  = 2,
@@ -80,39 +70,43 @@ typedef enum cryptoMode {
      CRYPTO_MODE_SM4_CBC  = 4,
      CRYPTO_MODE_SM4_CFB  = 5,
      CRYPTO_MODE_AES_CHINADRM_CBC  = 0x100
-}cryptoMode;
-
+}DrmCryptoMode;
 
 typedef struct {
     void *value;
-    uint32_t valueSize;
+    uint32_t value_size;
 } DrmCryptoInfo;
 
 typedef struct {
-     uint32_t *numBytesOfClearData;
-     uint32_t *numBytesOfEncryptedData;
-     uint32_t numSubSamples;
+     uint32_t *num_cleardata;
+     uint32_t *num_encrypteddata;
+     uint32_t num_subsamples;
 } DrmBufferInfo;
 
 typedef struct HLSDecryptor{
-    int32_t mEncryptLevel;  //DRM_CRYPTO_ENCRYPT_ES_BASED / DRM_CRYPTO_ENCRYPT_CONTAINER_BASED
-    cryptoMode mCryptoMode;
-    esMode     mEsMode;
-    int32_t mNeedDepadding;
+    int32_t encrypt_level;  //DRM_CRYPTO_ENCRYPT_ES_BASED / DRM_CRYPTO_ENCRYPT_CONTAINER_BASED
+    DrmCryptoMode crypto_mode;
+    ESType    es_type;
+    int32_t need_depadding;
 
-    uint8_t mKey[AES_BLOCK_LENGTH_BYTES];
-    uint8_t mKeyID[AES_BLOCK_LENGTH_BYTES];
-    uint8_t mIv[AES_BLOCK_LENGTH_BYTES];
-    pthread_mutex_t mLockDecryptor;
+    uint8_t key[AES_BLOCK_LENGTH_BYTES];
+    uint8_t keyid[AES_BLOCK_LENGTH_BYTES];
+    uint8_t iv[AES_BLOCK_LENGTH_BYTES];
+    pthread_mutex_t lock_decryptor;
 
-    int32_t (*setCryptoInfo)(struct HLSDecryptor *ad, int32_t infoType, DrmCryptoInfo *pInfo);
-    int32_t (*getCryptoInfo)(struct HLSDecryptor *ad, int32_t infoType, DrmCryptoInfo *pInfo);
-    int32_t (*decrypt)(struct HLSDecryptor *ad, uint8_t* buffer, uint32_t *bufferSize, const DrmBufferInfo *pBufferInfo);
+    AVCodecParserContext *apc;
+
+    int32_t (*setCryptoInfo)(struct HLSDecryptor *ad, DrmCryptoInfoType infoType, DrmCryptoInfo *pInfo);
+    int32_t (*getCryptoInfo)(struct HLSDecryptor *ad, DrmCryptoInfoType infoType, DrmCryptoInfo *pInfo);
+    int32_t (*decrypt)(struct HLSDecryptor *ad, uint8_t* buffer, uint32_t *bufferSize);
 } HLSDecryptor;
 
+HLSDecryptor* hls_decryptor_init(void);
+void hls_decryptor_destroy(HLSDecryptor *ad);
 
-HLSDecryptor* HLSDecryptor_init(void);
-void HLSDecryptor_destroy(HLSDecryptor *ad);
+void hls_decryptor_strip03(uint8_t *data, int *size);
+HLSDecryptor *hls_decryptor_init2(AVCodecParserContext *apc, ESType es_type);
+
 
 #ifdef __cplusplus
     }

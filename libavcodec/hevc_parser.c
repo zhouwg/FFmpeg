@@ -3,6 +3,8 @@
  *
  * Copyright (C) 2012 - 2013 Guillaume Martres
  *
+ * Copyright (c) 2021 Zhou Weiguo <zhouwg2000@gmail.com> add support with HLS H265 SampleAES, HLS H265 Sample China-SM4 CBC, HLS H265 China-SM4 CBC
+ *
  * This file is part of FFmpeg.
  *
  * FFmpeg is free software; you can redistribute it and/or
@@ -31,6 +33,9 @@
 #include "internal.h"
 #include "parser.h"
 
+#include "libavutil/hlsencryptinfo.h"
+#include "libavutil/hlsdecryptor.h"
+
 #define START_CODE 0x000001 ///< start_code_prefix_one_3bytes
 
 #define IS_IRAP_NAL(nal) (nal->type >= 16 && nal->type <= 23)
@@ -49,6 +54,8 @@ typedef struct HEVCParserContext {
 
     int poc;
     int pocTid0;
+
+    HLSDecryptor *hls_decryptor;
 } HEVCParserContext;
 
 static int hevc_parse_slice_header(AVCodecParserContext *s, H2645NAL *nal,
@@ -298,12 +305,14 @@ static int hevc_find_frame_end(AVCodecParserContext *s, const uint8_t *buf,
     return END_NOT_FOUND;
 }
 
-static int hevc_parse(AVCodecParserContext *s, AVCodecContext *avctx,
+static int hevc_parse(AVCodecParserContext *apc, AVCodecContext *avctx,
                       const uint8_t **poutbuf, int *poutbuf_size,
                       const uint8_t *buf, int buf_size)
 {
     int next;
-    HEVCParserContext *ctx = s->priv_data;
+    uint32_t strippedSize  = 0;
+
+    HEVCParserContext *ctx = apc->priv_data;
     ParseContext *pc = &ctx->pc;
     int is_dummy_buf = !buf_size;
     const uint8_t *dummy_buf = buf;
@@ -315,10 +324,10 @@ static int hevc_parse(AVCodecParserContext *s, AVCodecContext *avctx,
         ctx->parsed_extradata = 1;
     }
 
-    if (s->flags & PARSER_FLAG_COMPLETE_FRAMES) {
+    if (apc->flags & PARSER_FLAG_COMPLETE_FRAMES) {
         next = buf_size;
     } else {
-        next = hevc_find_frame_end(s, buf, buf_size);
+        next = hevc_find_frame_end(apc, buf, buf_size);
         if (ff_combine_frame(pc, next, &buf, &buf_size) < 0) {
             *poutbuf      = NULL;
             *poutbuf_size = 0;
@@ -329,10 +338,62 @@ static int hevc_parse(AVCodecParserContext *s, AVCodecContext *avctx,
     is_dummy_buf &= (dummy_buf == buf);
 
     if (!is_dummy_buf)
-        parse_nal_units(s, buf, buf_size, avctx);
+        parse_nal_units(apc, buf, buf_size, avctx);
+
+    //search encrypted NALU
+    if ((apc->hls_encryptinfo->es_type == ES_H265_SAMPLE_AES)
+     || (apc->hls_encryptinfo->es_type == ES_H265_SAMPLE_SM4_CBC)
+     || (apc->hls_encryptinfo->es_type == ES_H265_SM4_CBC)) {
+        uint8_t *pKeyFrame       = buf;
+        uint32_t keyFrameIndex   = 0;
+        uint32_t keyFrameSize    = 0;
+        uint32_t keyFrameOrgSize = 0;
+        uint32_t searchOffset    = 0;
+        uint32_t searchLength    = buf_size;
+        uint8_t nalu_byte        = 0;
+        uint8_t nalu_type        = 0;
+
+        while (searchLength > 0) {
+            if ((searchLength >= 3) && (pKeyFrame[searchOffset] == 0x00) && (pKeyFrame[searchOffset +1] == 0x00) && (pKeyFrame[searchOffset + 2] == 0x01)) {
+                nalu_byte       = pKeyFrame[searchOffset + 3];
+                nalu_type       = (nalu_byte & 0x7E) >> 1;
+                if (nalu_type >= 0 && nalu_type <= HEVC_NAL_RSV_VCL31) {
+                    keyFrameIndex  = searchOffset + 3;
+                }
+                searchOffset += 3;
+                searchLength -= 3;
+                continue;
+            }
+            if ((searchLength >= 4) && (pKeyFrame[searchOffset] == 0x00) && (pKeyFrame[searchOffset +1] == 0x00) && (pKeyFrame[searchOffset + 2] == 0x00) && (pKeyFrame[searchOffset + 3] == 0x01)) {
+                nalu_byte       = pKeyFrame[searchOffset + 4];
+                nalu_type       = (nalu_byte & 0x7E) >> 1;
+                if (nalu_type >= 0 && nalu_type <= HEVC_NAL_RSV_VCL31) {
+                    keyFrameIndex  = searchOffset + 4;
+                }
+                searchOffset += 4;
+                searchLength -= 4;
+            }
+            searchOffset++;
+            searchLength--;
+        }
+
+        //ok, got the encrypted NALU
+        if (0 != keyFrameIndex) {
+            pKeyFrame       = (uint8_t*)buf + keyFrameIndex;
+            keyFrameSize    = buf_size - keyFrameIndex;
+            keyFrameOrgSize = keyFrameSize;
+            hls_decryptor_strip03(pKeyFrame, &keyFrameSize);
+            strippedSize = keyFrameOrgSize - keyFrameSize;
+            av_assert0(strippedSize >= 0);
+            ctx->hls_decryptor->decrypt(ctx->hls_decryptor, pKeyFrame, &keyFrameSize);
+        }
+    } else {
+        av_log(NULL, AV_LOG_WARNING, "invalid es type %d for h265 parser, it shouldn't happen here,pls check...", apc->hls_encryptinfo->es_type);
+    }
 
     *poutbuf      = buf;
-    *poutbuf_size = buf_size;
+    *poutbuf_size = buf_size - strippedSize;
+
     return next;
 }
 
@@ -369,21 +430,44 @@ static int hevc_split(AVCodecContext *avctx, const uint8_t *buf, int buf_size)
     return 0;
 }
 
-static void hevc_parser_close(AVCodecParserContext *s)
+static void hevc_parser_close(AVCodecParserContext *apc)
 {
-    HEVCParserContext *ctx = s->priv_data;
+    HEVCParserContext *ctx = apc->priv_data;
 
     ff_hevc_ps_uninit(&ctx->ps);
     ff_h2645_packet_uninit(&ctx->pkt);
     ff_hevc_reset_sei(&ctx->sei);
 
+    hls_decryptor_destroy(ctx->hls_decryptor);
+
     av_freep(&ctx->pc.buffer);
+}
+
+static av_cold int init(AVCodecParserContext *apc)
+{
+    HEVCParserContext *p = apc->priv_data;
+
+    if (apc->hls_encryptinfo) {
+        dump_key_info(apc->hls_encryptinfo);
+
+        if (apc->hls_encryptinfo->is_encrypted) {
+            p->hls_decryptor = hls_decryptor_init2(apc, ES_H265);
+            av_assert0(NULL != p->hls_decryptor);
+            if (NULL == p->hls_decryptor) {
+                av_log(apc, AV_LOG_WARNING, "HLSDecryptor_init_2 failed for h265 parser");
+                return 0;
+            }
+        }
+    }
+
+    return 0;
 }
 
 AVCodecParser ff_hevc_parser = {
     .name           = "hevc parser",
     .codec_ids      = { AV_CODEC_ID_HEVC, AV_CODEC_ID_H265_SAMPLE_AES },
     .priv_data_size = sizeof(HEVCParserContext),
+    .parser_init    = init,
     .parser_parse   = hevc_parse,
     .parser_close   = hevc_parser_close,
     .split          = hevc_split,

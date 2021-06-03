@@ -22,17 +22,18 @@
 #include "log.h"
 #include "hlsencryptinfo.h"
 
-void dump_key_info(struct key_info *info)
+void dump_key_info(struct KeyInfo *info)
 {
-    av_log(NULL, AV_LOG_INFO, "\tinfo->encryptionKeyUri      : %s", info->encryptionKeyUri);
-    av_log(NULL, AV_LOG_INFO, "\tinfo->encryptionKeyRealUri  : %s", info->encryptionKeyRealUri);
-    av_log(NULL, AV_LOG_INFO, "\tinfo->encryptionMethod      : %s", info->encryptionMethod);
-    av_log(NULL, AV_LOG_INFO, "\tinfo->encryptionIvString    : %s", info->encryptionIvString);
-    av_log(NULL, AV_LOG_INFO, "\tinfo->encryptionVideoFormat : %s", info->encryptionVideoFormat);
-    av_log(NULL, AV_LOG_INFO, "\tinfo->encryptionKeyIdString : %s", info->encryptionKeyId);
-    av_log(NULL, AV_LOG_INFO, "\tinfo->encryptionKeyFormat   : %s", info->encryptionKeyFormat);
-    av_log(NULL, AV_LOG_INFO, "\tinfo->encryptionKeyFormatVer: %s", info->encryptionKeyFormatVersions);
-    av_log(NULL, AV_LOG_INFO, "\tinfo->encryptionKeyString   : %s", info->encryptionKeyString);
-    av_log(NULL, AV_LOG_INFO, "\tinfo->isEncrypted           : %d", info->isEncrypted);
-    av_log(NULL, AV_LOG_INFO, "\tinfo->drmSessionHandle      : %d", info->drmSessionHandle);
+    av_log(NULL, AV_LOG_INFO, "\tinfo->encryption_keyuir      : %s", info->encryption_keyuri);
+    av_log(NULL, AV_LOG_INFO, "\tinfo->encryption_keyrealuri  : %s", info->encryption_keyrealuri);
+    av_log(NULL, AV_LOG_INFO, "\tinfo->encryption_method      : %s", info->encryption_method);
+    av_log(NULL, AV_LOG_INFO, "\tinfo->encryption_ivstring    : %s", info->encryption_ivstring);
+    av_log(NULL, AV_LOG_INFO, "\tinfo->encryption_videoformat : %s", info->encryption_videoformat);
+    av_log(NULL, AV_LOG_INFO, "\tinfo->encryption_keyidstring : %s", info->encryption_keyid);
+    av_log(NULL, AV_LOG_INFO, "\tinfo->encryption_keyformat   : %s", info->encryption_keyformat);
+    av_log(NULL, AV_LOG_INFO, "\tinfo->encryption_keyformatver: %s", info->encryption_keyformatversions);
+    av_log(NULL, AV_LOG_INFO, "\tinfo->encryption_keystring   : %s", info->encryption_keystring);
+    av_log(NULL, AV_LOG_INFO, "\tinfo->is_encrypted           : %d", info->is_encrypted);
+    av_log(NULL, AV_LOG_INFO, "\tinfo->es_type                : %d", info->es_type);
+    av_log(NULL, AV_LOG_INFO, "\tinfo->drm_sessionhandle     : %d", info->drm_sessionhandle);
 }
