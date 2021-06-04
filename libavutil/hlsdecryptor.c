@@ -1,9 +1,21 @@
 /*
  * Apple HTTP Live Streaming decryptor
  *
- * Copyright (c) 2011-2017, John Chen
+ * Copyright (c) 2011-2017,  John Chen
  *
- * Copyright (c) 2021, Zhou Weiguo<zhouwg2000@gmail.com>, porting to FFmpeg and add HLS Sample China-SM4-CBC and HLS China-SM4-CBC support
+ * Copyright (c) 2021,       zhouwg, <zhouwg2000@gmail.com>, porting to FFmpeg and add HLS China-SM4-CBC
+ *                                                           and HLS Sample China-SM4-CBC support
+ *
+ *               2021-06-01, zhouwg, refine entire file to follow FFmpeg's style
+ *               2021-06-02, zhouwg, refine interface HLSDecryptor->decrypt, more extendable for further/other decrypt algo
+ *               2021-06-03, zhouwg, add public exported function hls_decryptor_init2, and remove redundent codes in
+ *                                   in libavcodec/h264_parser.c & libavcodec/hevc_parser.c
+ *               2021-06-04, zhouwg, add interface HLSDecryptor->parse_cei, and remove redundent codes
+ *                                   in libavcodec/h264_parser.c & libavcodec/hevc_parser.c
+ *
+ *                                   now we can focus on internal implementation and optimization in this file
+ *
+ *                                   regular sanity check passed before submit to github
  *
  * This file is part of FFmpeg.
  *
@@ -34,6 +46,7 @@
 
 #include "libavcodec/h264.h"
 #include "libavcodec/hevc.h"
+#include "libavformat/internal.h"
 
 #define PRE_CHECK(index, value, condition) do { if (!(condition)) { av_log(NULL, AV_LOG_WARNING, "index = %03d, value= %08d, value % 16 = %02d, it shouldn't happen, pls check...", (index), (value), (value) % 16); return -1; } } while(0)
 #define CHECK(condition) do { if (!(condition)) { av_log(NULL, AV_LOG_WARNING, "error,pls check..."); return -1; } } while(0)
@@ -92,13 +105,13 @@ static int32_t hlsdecryptor_sm4cbc_decrypt(HLSDecryptor *ad, uint8_t *buffer, ui
 
     //sanity check could be removed for production
     for (index = 0; index < pbufferinfo->num_subsamples; index++) {
-        PRE_CHECK(index, pbufferinfo->num_encrypteddata[index], pbufferinfo->num_encrypteddata[index] % AES_BLOCK_LENGTH_BYTES == 0);
+        PRE_CHECK(index, pbufferinfo->num_encrypteddata[index], pbufferinfo->num_encrypteddata[index] % SM4_BLOCK_LENGTH_BYTES == 0);
     }
 
     //section 6.2.3 in GY/T277-2019, http://www.nrta.gov.cn/art/2019/6/15/art_113_46189.html
     for (index = 0; index < pbufferinfo->num_subsamples; index++) {
         offset += pbufferinfo->num_cleardata[index];
-        PRE_CHECK(index, pbufferinfo->num_encrypteddata[index], pbufferinfo->num_encrypteddata[index] % AES_BLOCK_LENGTH_BYTES == 0);
+        PRE_CHECK(index, pbufferinfo->num_encrypteddata[index], pbufferinfo->num_encrypteddata[index] % SM4_BLOCK_LENGTH_BYTES == 0);
         size = pbufferinfo->num_encrypteddata[index];
         if (size > 0) {
             ptr = buffer + offset;
@@ -114,7 +127,7 @@ static int32_t hlsdecryptor_sm4cbc_decrypt(HLSDecryptor *ad, uint8_t *buffer, ui
     return result;
 }
 
-static int32_t hlsdecryptor_samplesm4cbc_decrypt(HLSDecryptor *ad, uint8_t *buffer, uint32_t buffer_size, const DrmBufferInfo *pbuffinfo)
+static int32_t hlsdecryptor_samplesm4cbc_decrypt(HLSDecryptor *ad, uint8_t *buffer, uint32_t buffer_size, const DrmBufferInfo *pbufferinfo)
 {
     uint8_t  *ptr   = NULL;
     uint32_t index  = 0;
@@ -123,11 +136,28 @@ static int32_t hlsdecryptor_samplesm4cbc_decrypt(HLSDecryptor *ad, uint8_t *buff
     int32_t  result = 0;
 
     //sanity check could be removed for production
-    for (index = 0; index < pbuffinfo->num_subsamples; index++) {
-        PRE_CHECK(index, pbuffinfo->num_encrypteddata[index], pbuffinfo->num_encrypteddata[index] % AES_BLOCK_LENGTH_BYTES == 0);
+    for (index = 0; index < pbufferinfo->num_subsamples; index++) {
+        PRE_CHECK(index, pbufferinfo->num_encrypteddata[index], pbufferinfo->num_encrypteddata[index] % SM4_BLOCK_LENGTH_BYTES == 0);
     }
 
-    //TODO:Sample SM4-CBC not working at the moment
+    //TODO:Sample SM4-CBC not working as expected at the moment
+    //although it SHOULD be same as function hlsdecryptor_sm4cbc_decrypt
+    //section 6.2.3 in GY/T277-2019, http://www.nrta.gov.cn/art/2019/6/15/art_113_46189.html
+    for (index = 0; index < pbufferinfo->num_subsamples; index++) {
+        offset += pbufferinfo->num_cleardata[index];
+        PRE_CHECK(index, pbufferinfo->num_encrypteddata[index], pbufferinfo->num_encrypteddata[index] % SM4_BLOCK_LENGTH_BYTES == 0);
+        size = pbufferinfo->num_encrypteddata[index];
+        if (size > 0) {
+            ptr = buffer + offset;
+            CHECK(size % SM4_BLOCK_LENGTH_BYTES == 0);
+            result = hlsdecryptor_sm4cbc_decrypt_internal(ad, ptr, size, ad->key, ad->iv);
+            if (result != 0) {
+                av_log(NULL, AV_LOG_WARNING, "sample sm4cbc decrypt failed");
+                return result;
+            }
+            offset += pbufferinfo->num_encrypteddata[index];
+        }
+    }
 
     return result;
 }
@@ -199,7 +229,7 @@ static int32_t hlsdecryptor_decrypt_containerbase(HLSDecryptor *ad, uint8_t *buf
 
 static int32_t hlsdecryptor_decrypt_esbase(HLSDecryptor *ad, uint8_t *buffer, uint32_t buffer_size, const DrmBufferInfo *pbufferinfo)
 {
-    DrmBufferInfo info          = {0};
+    DrmBufferInfo info       = {0};
     uint32_t clear_size      = 0;
     uint32_t encrypted_size  = buffer_size;
 
@@ -308,7 +338,7 @@ static int32_t hlsdecryptor_get_cryptoinfo(HLSDecryptor *ad, DrmCryptoInfoType i
 }
 
 /**
-* @param buffer          stripped encrypted IDR/Slice data, beginning with NALU type bytes
+* @param buffer          stripped encrypted H264/H265 data, beginning with NALU type bytes
 * @param pbuffer_size    pointer of size of stripped encrypted data
 */
 #define min(a, b) ((a) < (b) ? (a) : (b))
@@ -327,7 +357,7 @@ static int32_t hlsdecryptor_decrypt(HLSDecryptor *ad, uint8_t *buffer, uint32_t 
     uint32_t tmp_nal_size   = buffer_size;
 
     int32_t  result                   = 0;
-    int8_t   naltype                  = -1;
+    uint8_t  naltype                  = 0;
     bool     is_encrypted_naltype     = false;
     struct   KeyInfo *hls_encryptinfo = NULL;
 
@@ -348,11 +378,11 @@ static int32_t hlsdecryptor_decrypt(HLSDecryptor *ad, uint8_t *buffer, uint32_t 
         is_encrypted_naltype = (naltype == H264_NAL_SLICE || naltype == H264_NAL_IDR_SLICE);
     } else if (ES_H265_SAMPLE_AES == hls_encryptinfo->es_type) {
         naltype = (buffer[0] & 0x7E) >> 1;
-        is_encrypted_naltype = ((naltype >= 0 && naltype <= HEVC_NAL_RASL_R) || (naltype >= HEVC_NAL_BLA_W_LP && naltype <= HEVC_NAL_CRA_NUT));
+        is_encrypted_naltype = ((naltype <= HEVC_NAL_RASL_R) || (naltype >= HEVC_NAL_BLA_W_LP && naltype <= HEVC_NAL_CRA_NUT));
     } else if ((ES_H265_SM4_CBC == hls_encryptinfo->es_type) || (ES_H265_SAMPLE_SM4_CBC == hls_encryptinfo->es_type)) {
         naltype = (buffer[0] & 0x7E) >> 1;
         //section 6.2.4 in GY/T277-2019, http://www.nrta.gov.cn/art/2019/6/15/art_113_46189.html
-        is_encrypted_naltype = (naltype >= 0 && naltype <= HEVC_NAL_RSV_VCL31);
+        is_encrypted_naltype = (naltype <= HEVC_NAL_RSV_VCL31);
     } else {
         av_log(NULL, AV_LOG_WARNING, "unknown es type  %d, it shouldn't happen here,pls check...", hls_encryptinfo->es_type);
         return -1;
@@ -378,7 +408,7 @@ static int32_t hlsdecryptor_decrypt(HLSDecryptor *ad, uint8_t *buffer, uint32_t 
 
     if ((NULL == clear_bytes) || (NULL == encrypt_bytes)) {
         av_log(NULL, AV_LOG_WARNING, "clear_bytes or encrypt_bytes is NULL");
-        return;
+        return -1;
     }
 
     if ((ES_H265_SM4_CBC == hls_encryptinfo->es_type) || (ES_H265_SAMPLE_SM4_CBC == hls_encryptinfo->es_type)) {
@@ -475,6 +505,7 @@ assemble_done:
     drm_bufferinfo.num_encrypteddata = encrypt_bytes;
     drm_bufferinfo.num_subsamples    = num_samples;
 
+
     pthread_mutex_lock(&ad->lock_decryptor);
     if (ES_H264_SAMPLE_AES == ad->es_type) {
         if (ad->encrypt_level == DRM_CRYPTO_ENCRYPT_ES_BASED) {
@@ -485,7 +516,6 @@ assemble_done:
             result = -1;
         }
     } else if ((ES_H264_SAMPLE_SM4_CBC == ad->es_type) || (ES_H265_SAMPLE_SM4_CBC == ad->es_type)) {
-        //not working at the moment
         result = hlsdecryptor_samplesm4cbc_decrypt(ad, buffer, buffer_size, &drm_bufferinfo);
     } else if ((ES_H264_SM4_CBC == ad->es_type) || ( ES_H265_SM4_CBC == ad->es_type)) {
         result = hlsdecryptor_sm4cbc_decrypt(ad, buffer, buffer_size, &drm_bufferinfo);
@@ -498,6 +528,186 @@ assemble_done:
     return result;
 }
 
+static int32_t hlsdecryptor_parse_cei(HLSDecryptor *ad, uint8_t *buf, int buf_size, uint32_t *out_keyframe_index, uint8_t *out_encryption_flag)
+{
+    uint8_t *pframe           = NULL;
+    uint8_t *pseiframe        = NULL;
+    uint8_t *pcei             = NULL;
+    uint32_t cei_length       = 0;
+    uint32_t keyframe_index   = 0;
+    uint32_t keyframe_size    = 0;
+    uint32_t seiframe_index   = 0;
+    uint32_t seiframe_size    = 0;
+    uint32_t seiframe_orgsize = 0;
+    uint32_t search_offset    = 0;
+    uint32_t search_length    = 0;
+    uint8_t  nalu_byte        = 0;
+    uint8_t  nalu_type        = 0;
+    uint8_t  nalu_offset      = 0;
+    uint8_t  is_nalu_prefix   = 0;
+    uint8_t  encryption_flag  = 0;
+    uint8_t  nextkeyid_flag   = 0;
+    ESType   es_type          = ES_UNKNOWN;
+
+    av_assert0(NULL != ad);
+    av_assert0(NULL != ad->apc);
+    av_assert0(NULL != ad->apc->hls_encryptinfo);
+
+    pframe                    = buf;
+    search_length             = buf_size;
+
+    *out_keyframe_index       = 0;
+    *out_encryption_flag      = 0;
+
+    if ((ES_H264 == ad->es_type) || (ES_H264_SAMPLE_AES == ad->es_type) || (ES_H264_SAMPLE_SM4_CBC == ad->es_type) || (ES_H264_SM4_CBC == ad->es_type)) {
+        //es type is series of H264
+        es_type = ES_H264;
+    }
+
+    if ((ES_H265 == ad->es_type) || (ES_H265_SAMPLE_AES == ad->es_type) || (ES_H265_SAMPLE_SM4_CBC == ad->es_type) || (ES_H265_SM4_CBC == ad->es_type)) {
+        //es type is series of H265
+        es_type = ES_H265;
+    }
+
+    // CEI parse not required for SampleAES content but we need to know offset of keyframe and other info for further purpose
+    // so  DON'T return here for SampleAES content
+    if (ES_UNKNOWN == es_type)
+        return -1;
+
+    while (search_length > 0) {
+        if ((search_length >= 3) && (pframe[search_offset] == 0x00) && (pframe[search_offset + 1] == 0x00) && (pframe[search_offset + 2] == 0x01)) {
+            is_nalu_prefix   = 1;
+            nalu_offset      = 3;
+        } else if ((search_length >= 4) && (pframe[search_offset] == 0x00) && (pframe[search_offset + 1] == 0x00) && (pframe[search_offset + 2] == 0x00) && (pframe[search_offset + 3] == 0x01)) {
+            is_nalu_prefix   = 1;
+            nalu_offset      = 4;
+        } else {
+            is_nalu_prefix   = 0;
+            nalu_offset      = 0;
+        }
+
+        if (1 == is_nalu_prefix) {
+            nalu_byte       = pframe[search_offset + nalu_offset];
+            if (ES_H265 == es_type) {
+                nalu_type   = (nalu_byte & 0x7E) >> 1;
+            } else if (ES_H264 == es_type) {
+                nalu_type   = (nalu_byte & 0x1F);
+            }
+
+            if (ES_H264 == es_type) {
+                if (H264_NAL_IDR_SLICE == nalu_type || H264_NAL_SLICE == nalu_type) {
+                    keyframe_index      = search_offset + nalu_offset;
+                    *out_keyframe_index = search_offset + nalu_offset;
+                    keyframe_size       = buf_size - keyframe_index;
+                    if (seiframe_index > 0) {
+                        seiframe_size       = search_offset + nalu_offset - seiframe_index;
+                        seiframe_orgsize    = seiframe_size;
+                    }
+                }
+
+                if (H264_NAL_SEI == nalu_type) {
+                    seiframe_index  = search_offset + nalu_offset;
+                }
+            }
+
+            if (ES_H265 == es_type) {
+                //section 6.2.4 in GY/T277-2019, http://www.nrta.gov.cn/art/2019/6/15/art_113_46189.html
+                if (nalu_type <= HEVC_NAL_RSV_VCL31) {
+                    keyframe_index      = search_offset + nalu_offset;
+                    *out_keyframe_index = search_offset + nalu_offset;
+                    keyframe_size       = buf_size - keyframe_index;
+                    if (seiframe_index > 0) {
+                        seiframe_size       = search_offset + nalu_offset - seiframe_index;
+                        seiframe_orgsize    = seiframe_size;
+                    }
+                }
+                if (HEVC_NAL_SEI_PREFIX == nalu_type) {
+                    seiframe_index  = search_offset + nalu_offset;
+                }
+            }
+
+            search_offset += nalu_offset;
+            search_length -= nalu_offset;
+        } else {
+            search_offset++;
+            search_length--;
+        }
+    }
+
+    if (seiframe_index > 0) {
+        pseiframe   = (uint8_t*)buf  + seiframe_index;
+        pcei        = (uint8_t*)buf  + seiframe_index;
+        cei_length  = seiframe_size;
+
+        //I think strip03 is not required for NAL_SEI
+        hls_decryptor_strip03(pseiframe, &seiframe_size);
+        //just for validation, will be removed in the future
+        av_assert0(0 == (seiframe_orgsize - seiframe_size));
+
+        //skip nalu type byte
+        pcei++;
+        cei_length -= 1;
+
+        if (ES_H265 == es_type) {
+            //skip nuh_layer_id & nuh_temporal_id_plus1
+            pcei++;
+            cei_length -= 1;
+        }
+
+        //skip payload type byte(pseiframe[1]) and payload length byte(pseiframe[2])
+        pcei       += 2;
+        cei_length -= 2;
+
+        if (seiframe_size >= 37) {
+            //CEI UUID defined in section 6.2.3 in GY/T277-2019, http://www.nrta.gov.cn/art/2019/6/15/art_113_46189.html
+            uint8_t CEI_UUID[CEI_UUID_LENGTH] = {0x70,0xC1,0xDB,0x9F,0x66,0xAE,0x41,0x27,0xBF,0xC0,0xBB,0x19,0x81,0x69,0x4B,0x66};
+            if (0 == memcmp(pcei, CEI_UUID, CEI_UUID_LENGTH)) {
+                int     cei_offset      = 0;
+                int     iv_length       = 0;
+                uint8_t iv[KEY_LENGTH_BYTES];
+                uint8_t nextkeyid[KEY_LENGTH_BYTES];
+
+                //skip CEI UUID
+                pcei       += CEI_UUID_LENGTH;
+                cei_length -= CEI_UUID_LENGTH;
+
+                //ok, we got full CEI
+                //parse it according to section 6.2.1 in GY/T277-2019, http://www.nrta.gov.cn/art/2019/6/15/art_113_46189.html
+                encryption_flag = (pcei[cei_offset] >> 7) & 0x1;
+                nextkeyid_flag  = (pcei[cei_offset] >> 6) & 0x1;
+                cei_offset++;
+                cei_length--;
+
+                if (encryption_flag) {
+                    *out_encryption_flag      = 1;
+                    memcpy(ad->apc->hls_encryptinfo->encryption_keyid, pcei + cei_offset, KEY_LENGTH_BYTES);
+                    ff_data_to_hex(ad->apc->hls_encryptinfo->encryption_keyidstring, pcei + cei_offset, KEY_LENGTH_BYTES, 1);
+                    cei_offset += KEY_LENGTH_BYTES;
+                    cei_length += KEY_LENGTH_BYTES;
+                }
+
+                if (nextkeyid_flag) {
+                    memcpy(nextkeyid, pcei + cei_offset, KEY_LENGTH_BYTES);
+                    cei_offset += KEY_LENGTH_BYTES;
+                    cei_length += KEY_LENGTH_BYTES;
+                }
+
+                iv_length = pcei[cei_offset];
+                cei_offset++;
+                cei_length--;
+
+                memcpy(iv, pcei + cei_offset, IV_LENGTH_BYTES);
+                //just for validation, will be removed in the future
+                av_assert0(0 == memcmp(iv, ad->apc->hls_encryptinfo->encryption_iv, IV_LENGTH_BYTES));
+
+                cei_offset += KEY_LENGTH_BYTES;
+                cei_length += KEY_LENGTH_BYTES;
+            } /* end if (0 == memcmp(pcei, CEI_UUID, CEI_UUID_LENGTH)) */
+        } /* end if (seiframe_size >= 37) */
+    } /* end if (seiframe_index > 0) */
+
+    return 0;
+}
 
 //following are public functions
 //all public   function's name: hls_decryptor_xxx
@@ -620,9 +830,10 @@ HLSDecryptor *hls_decryptor_init()
     hls_decryptor->crypto_mode    = CRYPTO_MODE_NONE;
     pthread_mutex_init(&hls_decryptor->lock_decryptor, NULL);
 
+    hls_decryptor->decrypt         = hlsdecryptor_decrypt;
+    hls_decryptor->parse_cei       = hlsdecryptor_parse_cei;
     hls_decryptor->get_cryptoinfo  = hlsdecryptor_get_cryptoinfo;
     hls_decryptor->set_cryptoinfo  = hlsdecryptor_set_cryptoinfo;
-    hls_decryptor->decrypt         = hlsdecryptor_decrypt;
 
     return hls_decryptor;
 }

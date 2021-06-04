@@ -310,7 +310,7 @@ static int hevc_parse(AVCodecParserContext *apc, AVCodecContext *avctx,
                       const uint8_t *buf, int buf_size)
 {
     int next;
-    uint32_t stripped_size  = 0;
+    int stripped_size  = 0;
 
     HEVCParserContext *ctx = apc->priv_data;
     ParseContext *pc = &ctx->pc;
@@ -348,53 +348,33 @@ static int hevc_parse(AVCodecParserContext *apc, AVCodecContext *avctx,
         return next;
     }
 
-    //search encrypted NALU
     if ((apc->hls_encryptinfo->es_type == ES_H265_SAMPLE_AES)
      || (apc->hls_encryptinfo->es_type == ES_H265_SAMPLE_SM4_CBC)
      || (apc->hls_encryptinfo->es_type == ES_H265_SM4_CBC)) {
-        uint8_t *pkeyframe        = buf;
+        uint8_t *pkeyframe        = (uint8_t*)buf;
+        uint8_t  encryption_flag  = 0;
         uint32_t keyframe_index   = 0;
         uint32_t keyframe_size    = 0;
         uint32_t keyframe_orgsize = 0;
-        uint32_t search_offset    = 0;
-        uint32_t search_length    = buf_size;
-        uint8_t  nalu_byte        = 0;
-        uint8_t  nalu_type        = 0;
 
-        while (search_length > 0) {
-            if ((search_length >= 3) && (pkeyframe[search_offset] == 0x00) && (pkeyframe[search_offset +1] == 0x00) && (pkeyframe[search_offset + 2] == 0x01)) {
-                nalu_byte       = pkeyframe[search_offset + 3];
-                nalu_type       = (nalu_byte & 0x7E) >> 1;
-                if (nalu_type >= 0 && nalu_type <= HEVC_NAL_RSV_VCL31) {
-                    keyframe_index  = search_offset + 3;
-                }
-                search_offset += 3;
-                search_length -= 3;
-                continue;
-            }
-            if ((search_length >= 4) && (pkeyframe[search_offset] == 0x00) && (pkeyframe[search_offset +1] == 0x00) && (pkeyframe[search_offset + 2] == 0x00) && (pkeyframe[search_offset + 3] == 0x01)) {
-                nalu_byte       = pkeyframe[search_offset + 4];
-                nalu_type       = (nalu_byte & 0x7E) >> 1;
-                if (nalu_type >= 0 && nalu_type <= HEVC_NAL_RSV_VCL31) {
-                    keyframe_index  = search_offset + 4;
-                }
-                search_offset += 4;
-                search_length -= 4;
-            }
-            search_offset++;
-            search_length--;
-        }
-
-        //ok, got the encrypted NALU
-        if (0 != keyframe_index) {
-            pkeyframe       = (uint8_t*)buf + keyframe_index;
+        ctx->hls_decryptor->parse_cei(ctx->hls_decryptor, (uint8_t*)buf, buf_size, &keyframe_index, &encryption_flag);
+        if (keyframe_index > 0) {
+            //ok, got the encrypted NALU
             av_assert0(buf_size > keyframe_index);
+            pkeyframe       = (uint8_t*)buf + keyframe_index;
             keyframe_size    = buf_size - keyframe_index;
             keyframe_orgsize = keyframe_size;
             hls_decryptor_strip03(pkeyframe, &keyframe_size);
             stripped_size = keyframe_orgsize - keyframe_size;
             av_assert0(stripped_size >= 0);
-            ctx->hls_decryptor->decrypt(ctx->hls_decryptor, pkeyframe, &keyframe_size);
+            if ((apc->hls_encryptinfo->es_type == ES_H265_SAMPLE_SM4_CBC) || (apc->hls_encryptinfo->es_type == ES_H265_SM4_CBC)) {
+                //section 6.2.1 in GY/T277-2019, http://www.nrta.gov.cn/art/2019/6/15/art_113_46189.html
+                if (encryption_flag) {
+                    ctx->hls_decryptor->decrypt(ctx->hls_decryptor, pkeyframe, &keyframe_size);
+                }
+            } else {
+                ctx->hls_decryptor->decrypt(ctx->hls_decryptor, pkeyframe, &keyframe_size);
+            }
         }
     }
 
@@ -459,7 +439,6 @@ static av_cold int init(AVCodecParserContext *apc)
 
         if (apc->hls_encryptinfo->is_encrypted) {
             p->hls_decryptor = hls_decryptor_init2(apc, ES_H265);
-            av_assert0(NULL != p->hls_decryptor);
             if (NULL == p->hls_decryptor) {
                 av_log(apc, AV_LOG_WARNING, "HLSDecryptor_init_2 failed for h265 parser");
                 return 0;

@@ -37,7 +37,6 @@
 #include "libavutil/log.h"
 #include "libavutil/mem.h"
 #include "libavutil/pixfmt.h"
-#include "libavformat/internal.h"
 
 #include "avcodec.h"
 #include "get_bits.h"
@@ -254,7 +253,7 @@ static int scan_mmco_reset(AVCodecParserContext *s, GetBitContext *gb,
  */
 static inline int parse_nal_units(AVCodecParserContext *s,
                                   AVCodecContext *avctx,
-                                  const uint8_t * const buf, int buf_size, int *keyframe_index, int *seiframe_index, int *keyframe_type)
+                                  const uint8_t * const buf, int buf_size, int *keyframe_index, int *keyframe_type)
 {
     H264ParseContext *p = s->priv_data;
     H2645RBSP rbsp = { NULL };
@@ -268,8 +267,7 @@ static inline int parse_nal_units(AVCodecParserContext *s,
     int ret;
 
     *keyframe_type  =  0;
-    *keyframe_index =  8;
-    *seiframe_index =  -1;
+    *keyframe_index =  0;
 
     /* set some sane default values */
     s->pict_type         = AV_PICTURE_TYPE_I;
@@ -329,10 +327,6 @@ static inline int parse_nal_units(AVCodecParserContext *s,
                     src_length = 1000;
             }
             *keyframe_index = buf_index;
-            break;
-        case H264_NAL_SEI:
-            *seiframe_index = buf_index;
-            *keyframe_type  = H264_NAL_SEI;
             break;
         }
         consumed = ff_h2645_extract_rbsp(buf + buf_index, src_length, &rbsp, &nal, 1);
@@ -593,7 +587,6 @@ fail:
     return -1;
 }
 
-
 static int h264_parse(AVCodecParserContext *apc,
                       AVCodecContext *avctx,
                       const uint8_t **poutbuf, int *poutbuf_size,
@@ -604,7 +597,6 @@ static int h264_parse(AVCodecParserContext *apc,
     int next;
     int keyframe_index = 0;
     int keyframe_type  = 0;
-    int seiframe_index = 0;
     int stripped_size  = 0;
 
     if (!p->got_first) {
@@ -634,7 +626,7 @@ static int h264_parse(AVCodecParserContext *apc,
         }
     }
 
-    parse_nal_units(apc, avctx, buf, buf_size, &keyframe_index, &seiframe_index, &keyframe_type);
+    parse_nal_units(apc, avctx, buf, buf_size, &keyframe_index, &keyframe_type);
 
     if (avctx->framerate.num)
         avctx->time_base = av_inv_q(av_mul_q(avctx->framerate, (AVRational){avctx->ticks_per_frame, 1}));
@@ -684,90 +676,31 @@ static int h264_parse(AVCodecParserContext *apc,
     if ((apc->hls_encryptinfo->es_type == ES_H264_SAMPLE_AES)
      || (apc->hls_encryptinfo->es_type == ES_H264_SAMPLE_SM4_CBC)
      || (apc->hls_encryptinfo->es_type == ES_H264_SM4_CBC)) {
+        uint8_t *pkeyframe         = (uint8_t*)buf;
+        uint8_t  encryption_flag   = 0;
+        uint32_t keyframe_index_me = 0;
+        uint32_t keyframe_size     = 0;
+        uint32_t keyframe_orgsize  = 0;
 
-        if (seiframe_index > 0) {
-            uint8_t *pseiframe          = (uint8_t*)buf  + seiframe_index;
-            int      seiframe_size       = 0;
-            int      seiframe_orgsize    = 0;
-            uint8_t *pcei               = (uint8_t*)buf  + seiframe_index;
-            int      cei_length          = 0;
-            int      search_offset       = 0;
-            int      search_length       = buf_size - seiframe_index;
-
-            while (search_length > 0) {
-                if ((search_length >= 3) && (pcei[search_offset] == 0x00) && (pcei[search_offset +1] == 0x00) && (pcei[search_offset + 2] == 0x01)) {
-                    break;
+        p->hls_decryptor->parse_cei(p->hls_decryptor, (uint8_t*)buf, buf_size, &keyframe_index_me, &encryption_flag);
+        if (keyframe_index > 0) {
+            //ok, got the encrypted NALU
+            av_assert0(buf_size > keyframe_index);
+            pkeyframe        = (uint8_t*)buf + keyframe_index;
+            keyframe_size    = buf_size - keyframe_index;
+            keyframe_orgsize = keyframe_size;
+            hls_decryptor_strip03(pkeyframe, &keyframe_size);
+            stripped_size    = keyframe_orgsize - keyframe_size;
+            av_assert0(stripped_size >= 0);
+            if ((apc->hls_encryptinfo->es_type == ES_H264_SAMPLE_SM4_CBC) || (apc->hls_encryptinfo->es_type == ES_H264_SM4_CBC)) {
+                //section 6.2.1 in GY/T277-2019, http://www.nrta.gov.cn/art/2019/6/15/art_113_46189.html
+                if (encryption_flag) {
+                    p->hls_decryptor->decrypt(p->hls_decryptor, pkeyframe, &keyframe_size);
                 }
-                if ((search_length >= 4) && (pcei[search_offset] == 0x00) && (pcei[search_offset +1] == 0x00) && (pcei[search_offset + 2] == 0x00) && (pcei[search_offset + 3] == 0x01)) {
-                    break;
-                }
-                search_offset++;
-                search_length--;
-            }
-            seiframe_size    = search_offset;
-            seiframe_orgsize = search_offset;
-            cei_length       = search_offset;
-            //I think strip03 is not required for NAL_SEI
-            hls_decryptor_strip03(pseiframe, &seiframe_size);
-            av_assert0((seiframe_orgsize - seiframe_size) == 0);
-
-            //skip nalu type byte
-            pcei++;
-            cei_length -= 1;
-
-            //skip payload type byte(pseiframe[1]) and payload length byte(pseiframe[2])
-            pcei       += 2;
-            cei_length -= 2;
-
-            if (seiframe_size >= 37) {
-                //CEI UUID defined in section 6.2.3 in GY/T277-2019, http://www.nrta.gov.cn/art/2019/6/15/art_113_46189.html
-                uint8_t CEI_UUID[CEI_UUID_LENGTH] = {0x70,0xC1,0xDB,0x9F,0x66,0xAE,0x41,0x27,0xBF,0xC0,0xBB,0x19,0x81,0x69,0x4B,0x66};
-                if (0 == memcmp(pseiframe + 3, CEI_UUID, CEI_UUID_LENGTH)) {
-                    uint8_t encryption_flag = 0;
-                    uint8_t nextkeyid_flag  = 0;
-                    int     cei_offset      = 0;
-                    int     iv_length       = 0;
-                    uint8_t iv[KEY_LENGTH_BYTES];
-                    uint8_t nextkeyid[KEY_LENGTH_BYTES];
-
-                    //skip CEI UUID
-                    pcei       += CEI_UUID_LENGTH;
-                    cei_length -= CEI_UUID_LENGTH;
-
-                    //ok, we got full CEI, parse it according to section 6.2.1 in GY/T277-2019, http://www.nrta.gov.cn/art/2019/6/15/art_113_46189.html
-                    encryption_flag = (pcei[cei_offset] >> 7) & 0x1;
-                    nextkeyid_flag  = (pcei[cei_offset] >> 6) & 0x1;
-                    cei_offset++;
-                    cei_length--;
-                    if (encryption_flag) {
-                        memcpy(apc->hls_encryptinfo->encryption_keyid, pcei + cei_offset, KEY_LENGTH_BYTES);
-                        ff_data_to_hex(apc->hls_encryptinfo->encryption_keyidstring, pcei + cei_offset, KEY_LENGTH_BYTES, 1);
-                        cei_offset += KEY_LENGTH_BYTES;
-                        cei_length += KEY_LENGTH_BYTES;
-                    }
-                    if (nextkeyid_flag) {
-                        memcpy(nextkeyid, pcei + cei_offset, KEY_LENGTH_BYTES);
-                        cei_offset += KEY_LENGTH_BYTES;
-                        cei_length += KEY_LENGTH_BYTES;
-                    }
-                    iv_length = pcei[cei_offset];
-                    cei_offset++;
-                    cei_length--;
-                    memcpy(iv, pcei + cei_offset, IV_LENGTH_BYTES);
-                    av_assert0(0 == memcmp(iv, apc->hls_encryptinfo->encryption_iv, IV_LENGTH_BYTES));
-                    cei_offset += KEY_LENGTH_BYTES;
-                    cei_length += KEY_LENGTH_BYTES;
-                }
+            } else {
+                p->hls_decryptor->decrypt(p->hls_decryptor, pkeyframe, &keyframe_size);
             }
         }
-
-        uint8_t *pkeyframe       = (uint8_t*)buf + keyframe_index;
-        int     keyframe_size    = buf_size - keyframe_index;
-        int     keyframe_orgSize = keyframe_size;
-        hls_decryptor_strip03(pkeyframe, &keyframe_size);
-        stripped_size = keyframe_orgSize - keyframe_size;
-        av_assert0(stripped_size >= 0);
-        p->hls_decryptor->decrypt(p->hls_decryptor, pkeyframe, &keyframe_size);
     }
 
     *poutbuf      = buf;
@@ -839,7 +772,6 @@ static av_cold int init(AVCodecParserContext *apc)
 
         if (apc->hls_encryptinfo->is_encrypted) {
             p->hls_decryptor = hls_decryptor_init2(apc, ES_H264);
-            av_assert0(NULL != p->hls_decryptor);
             if (NULL == p->hls_decryptor) {
                 av_log(apc, AV_LOG_WARNING, "HLSDecryptor_init_2 failed for h264 parser");
                 return 0;

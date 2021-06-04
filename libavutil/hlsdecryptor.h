@@ -96,17 +96,16 @@ typedef struct HLSDecryptor{
 
     AVCodecParserContext *apc;
 
+    int32_t (*decrypt)(struct HLSDecryptor *ad, uint8_t* buffer, uint32_t *buffer_size);
     int32_t (*set_cryptoinfo)(struct HLSDecryptor *ad, DrmCryptoInfoType info_type, DrmCryptoInfo *pinfo);
     int32_t (*get_cryptoinfo)(struct HLSDecryptor *ad, DrmCryptoInfoType info_type, DrmCryptoInfo *pinfo);
-    int32_t (*decrypt)(struct HLSDecryptor *ad, uint8_t* buffer, uint32_t *buffer_size);
+    int32_t (*parse_cei)(struct HLSDecryptor *ad, uint8_t *buf, int buf_size, uint32_t *out_keyframe_index, uint8_t *out_encryption_flag);
 } HLSDecryptor;
 
 HLSDecryptor* hls_decryptor_init(void);
-void hls_decryptor_destroy(HLSDecryptor *ad);
-
-void hls_decryptor_strip03(uint8_t *data, int *size);
-HLSDecryptor *hls_decryptor_init2(AVCodecParserContext *apc, ESType es_type);
-
+HLSDecryptor* hls_decryptor_init2(AVCodecParserContext *apc, ESType es_type);
+void          hls_decryptor_destroy(HLSDecryptor *ad);
+void          hls_decryptor_strip03(uint8_t *data, int *size);
 
 #ifdef __cplusplus
     }
