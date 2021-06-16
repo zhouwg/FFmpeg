@@ -40,8 +40,12 @@
 #include "avio_internal.h"
 #include "id3v2.h"
 
-#define INITIAL_BUFFER_SIZE 32768
+#ifdef ENABLE_DRMCLIENT
+#include "curl/curl.h"
+#include "libavutil/chinadrm.h"
+#endif
 
+#define INITIAL_BUFFER_SIZE 32768
 #define MAX_FIELD_LEN 64
 #define MAX_CHARACTERISTICS_LEN 512
 
@@ -209,6 +213,9 @@ typedef struct HLSContext {
     int http_multiple;
     int http_seekable;
     AVIOContext *playlist_pb;
+
+    //TODO:it's not a good idea
+    struct KeyInfo *p_hls_encryptinfo;
 } HLSContext;
 
 static void free_segment_dynarray(struct segment **segments, int n_segments)
@@ -863,7 +870,7 @@ static int parse_playlist(HLSContext *c, const char *url,
                                &info);
             cur_init_section = new_init_section(pls, &info, url);
             cur_init_section->key_type = key_type;
-            memcpy(&cur_init_section->hls_encryptinfo, &hls_encryptinfo, sizeof(hls_encryptinfo));
+            //memcpy(&cur_init_section->hls_encryptinfo, &hls_encryptinfo, sizeof(hls_encryptinfo));
 
             if (has_iv) {
                 memcpy(cur_init_section->iv, iv, sizeof(iv));
@@ -923,6 +930,7 @@ static int parse_playlist(HLSContext *c, const char *url,
                     goto fail;
                 }
                 memcpy(&seg->hls_encryptinfo, &hls_encryptinfo, sizeof(hls_encryptinfo));
+
                 if (has_iv) {
                     memcpy(seg->iv, iv, sizeof(iv));
                 } else {
@@ -930,7 +938,7 @@ static int parse_playlist(HLSContext *c, const char *url,
                     memset(seg->iv, 0, sizeof(seg->iv));
                     AV_WB64(seg->iv + 8, seq);
                     memcpy(seg->hls_encryptinfo.encryption_iv, seg->iv, sizeof(seg->iv));
-                    ff_data_to_hex(&hls_encryptinfo.encryption_ivstring, seg->iv, sizeof(seg->iv), 1);
+                    ff_data_to_hex(hls_encryptinfo.encryption_ivstring, seg->iv, sizeof(seg->iv), 1);
                 }
                 if (key_type != KEY_NONE) {
                     ff_make_absolute_url(tmp_str, sizeof(tmp_str), url, key);
@@ -1250,6 +1258,183 @@ static void intercept_id3(struct playlist *pls, uint8_t *buf,
         pls->is_id3_timestamped = (pls->id3_mpegts_timestamp != AV_NOPTS_VALUE);
 }
 
+
+#ifdef ENABLE_DRMCLIENT
+struct curl_buffer
+{
+    char *memory;
+    size_t size;
+};
+
+static size_t curl_resp_callback(void *contents, size_t size, size_t nmemb, void *userp)
+{
+    size_t realsize = size * nmemb;
+    struct curl_buffer *mem = (struct curl_buffer *)userp;
+
+    mem->memory = (char*)realloc(mem->memory, mem->size + realsize + 1);
+    if (NULL == mem->memory)
+    {
+        return 0;
+    }
+
+    memcpy(&(mem->memory[mem->size]), contents, realsize);
+    mem->size += realsize;
+    mem->memory[mem->size] = 0;
+
+    return realsize;
+}
+
+static int http_post(const char* url, void* send_buffer, int send_size, void* recv_buffer, int* recv_size)
+{
+    int ret = 0;
+    CURL *curl;
+    CURLcode curl_result;
+    struct curl_slist* headers = NULL;
+
+    struct curl_buffer resp_data;
+    int http_timeout = 1000;
+
+    curl_global_init(CURL_GLOBAL_ALL);
+
+    resp_data.memory = (char*)malloc(1);
+    resp_data.memory[0] = 0;
+    resp_data.size = 0;
+
+    curl = curl_easy_init();
+    if (NULL != curl) {
+        headers=curl_slist_append(headers, "Content-Type:application/json;charset=UTF-8");
+        headers=curl_slist_append(headers, "Expect:");
+
+        curl_easy_setopt(curl,CURLOPT_HTTPHEADER,headers);
+        curl_easy_setopt(curl, CURLOPT_URL, url);
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_resp_callback);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&resp_data);
+
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, send_buffer);
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)send_size);
+
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT, (long)http_timeout);
+        curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, (long)http_timeout);
+        curl_easy_setopt(curl, CURLOPT_MAXAGE_CONN, (long)1);
+
+        curl_result = curl_easy_perform(curl);
+        if (CURLE_OK != curl_result) {
+            LOGW("curl_easy_perform() failed, reason: %s, url :%s, data: %s\n", curl_easy_strerror(curl_result), url, resp_data.memory);
+            ret = -1;
+        } else {
+            memcpy(recv_buffer, resp_data.memory, resp_data.size);
+            *recv_size = resp_data.size;
+        }
+        free(resp_data.memory);
+
+        curl_easy_cleanup(curl);
+        curl_global_cleanup();
+        curl_slist_free_all(headers);
+    }
+    return ret;
+}
+
+static int hls_drm_init(struct KeyInfo *info)
+{
+    #define TEMP_BUFFER_SIZE 4096
+    int  result         = 0;
+    char *keyuri        = NULL;
+    char *pstart        = NULL;
+    int  is_provisioned =  0;
+
+    unsigned char send_buffer[TEMP_BUFFER_SIZE] = {0};
+    unsigned int  send_size = TEMP_BUFFER_SIZE;
+    unsigned char recv_buffer[TEMP_BUFFER_SIZE] = {0};
+    unsigned int  recv_size = TEMP_BUFFER_SIZE;
+
+    unsigned char contentid[128]   = {0};
+    unsigned int  contentid_length = 128;
+    unsigned char drm_prv[128]     = {0};
+    unsigned char drm_ems[128]     = {0};
+    unsigned char server_addr[128] = {0};
+
+    CDRMC_SessionHandle drm_sessionhandle = NULL;
+
+    av_assert0(NULL != info);
+    keyuri = info->encryption_keyuri;
+    //only ChinaDRM supported at the moment
+    //ChinaDRM example:
+    //http://192.168.0.100:81/ems?contentid=1234567890
+    //
+    //Apple FairPlay example:
+    //#EXT-X-KEY:METHOD=SAMPLE-AES,URI="skd://609d43178264848034b2acb8/clip/5966922a70e766a31078cf8d",KEYFORMAT="com.apple.streamingkeydelivery"
+    pstart = strstr(keyuri, "ems?contentid=");
+    if (NULL != pstart) {
+        memcpy(server_addr, keyuri, pstart - keyuri - 1);
+        pstart += strlen("ems?contentid=");
+        contentid_length = strlen(keyuri) - (pstart - keyuri);
+        memcpy(contentid, pstart, contentid_length);
+
+        snprintf(drm_prv, 128, "%s/prv", server_addr);
+        snprintf(drm_ems, 128, "%s/ems", server_addr);
+    } else {
+        av_log(NULL, AV_LOG_ERROR, "can't find drm ems and contentid from keyuri %s", keyuri);
+        return -1;
+    }
+
+    is_provisioned = info->is_provisioned;
+#if (defined __ANDROID__) || (defined ANDROID)
+    //TODO: pass JNI env from Java layer to here
+    result = CDRMC_Start(NULL, NULL, "/sdcard/");
+#else
+    result = CDRMC_Start(NULL, NULL, "/tmp/");
+#endif
+    if (0 == result) {
+        result = CDRMC_OpenSession(&drm_sessionhandle);
+    } else {
+        av_log(NULL, AV_LOG_ERROR, "CDRMC_Start failed with return value: 0x%x", result);
+        return -1;
+    }
+
+    if (( 0 == result) && (0 == is_provisioned)) {
+        result = CDRMC_GetProvisionRequest(drm_sessionhandle, send_buffer, &send_size);
+    }
+
+    if (( 0 == result) && (0 == is_provisioned)) {
+        memset(recv_buffer, 0, TEMP_BUFFER_SIZE);
+        result = http_post(drm_prv, send_buffer, send_size, recv_buffer, &recv_size);
+    }
+
+    if (( 0 == result) && (0 == is_provisioned)) {
+        result = CDRMC_ProcessProvisionResponse(drm_sessionhandle, recv_buffer, recv_size);
+    }
+
+    if (( 0 == result) && (0 == is_provisioned)) {
+        //TODO:remove is_provisioned
+        is_provisioned       = 1;
+        info->is_provisioned = 1;
+    }
+
+    if (0 == result) {
+        memset(send_buffer, 0, TEMP_BUFFER_SIZE);
+        send_size = TEMP_BUFFER_SIZE;
+        result = CDRMC_GetLicenseRequest(drm_sessionhandle, contentid, contentid_length, send_buffer, &send_size);
+    }
+
+    if (0 == result) {
+        memset(recv_buffer, 0, TEMP_BUFFER_SIZE);
+        recv_size = TEMP_BUFFER_SIZE;
+        result = http_post(drm_ems, send_buffer, send_size, recv_buffer, &recv_size);
+    }
+
+    if (0 == result) {
+        result = CDRMC_ProcessLicenseResponse(drm_sessionhandle, recv_buffer, recv_size);
+    }
+
+    if (0 == result) {
+        info->drm_sessionhandle = (void*)drm_sessionhandle;
+    }
+
+    return result;
+}
+#endif
+
+
 static int open_input(HLSContext *c, struct playlist *pls, struct segment *seg, AVIOContext **in)
 {
     AVDictionary *opts = NULL;
@@ -1272,15 +1457,6 @@ static int open_input(HLSContext *c, struct playlist *pls, struct segment *seg, 
         ret = open_url(pls->parent, in, seg->url, &c->avio_opts, opts, &is_http);
         goto before_cleanup;
     }
-
-    /*
-    if (seg->key_type == KEY_SAMPLE_AES) {
-        av_log(pls->parent, AV_LOG_ERROR,
-               "SAMPLE-AES encryption is not supported yet\n");
-        ret = AVERROR_PATCHWELCOME;
-        goto before_cleanup;
-    }
-    */
 
     if ((seg->key_type == KEY_AES_128)
      || (seg->key_type == KEY_SAMPLE_AES)
@@ -1306,9 +1482,15 @@ static int open_input(HLSContext *c, struct playlist *pls, struct segment *seg, 
                 }
             } else {
                 //TODO:fetch license from remote DRM server and then save the DRM session handle to seg->hls_encryptinfo.drmSessionHanlde
-                av_log(pls->parent, AV_LOG_ERROR, "DRM license is not supported yet\n");
-                ret = AVERROR_PATCHWELCOME;
-                goto before_cleanup;
+                //av_log(pls->parent, AV_LOG_ERROR, "DRM license is not supported yet\n");
+                //ret = AVERROR_PATCHWELCOME;
+                //goto before_cleanup;
+                //
+                //TODO:only ChinaDRM supported at the moment
+#ifdef ENABLE_DRMCLIENT
+                hls_drm_init(&seg->hls_encryptinfo);
+#endif
+                c->p_hls_encryptinfo = &seg->hls_encryptinfo;
             }
             av_strlcpy(pls->key_url, seg->key, sizeof(pls->key_url));
         }
@@ -1895,6 +2077,14 @@ static void update_noheader_flag(AVFormatContext *s)
 static int hls_close(AVFormatContext *s)
 {
     HLSContext *c = s->priv_data;
+
+    if ((NULL != c->p_hls_encryptinfo) && (c->p_hls_encryptinfo->is_provisioned)) {
+        c->p_hls_encryptinfo->is_provisioned = 0;
+#ifdef ENABLE_DRMCLIENT
+        CDRMC_CloseSession(c->p_hls_encryptinfo->drm_sessionhandle);
+        CDRMC_Stop();
+#endif
+    }
 
     free_playlist_list(c);
     free_variant_list(c);

@@ -52,6 +52,9 @@
 #include "hevc.h"
 #include "libavutil/hlsencryptinfo.h"
 #include "libavutil/hlsdecryptor.h"
+#ifdef ENABLE_DRMCLIENT
+#include "libavutil/chinadrm.h"
+#endif
 
 typedef struct H264ParseContext {
     ParseContext pc;
@@ -682,23 +685,44 @@ static int h264_parse(AVCodecParserContext *apc,
         uint32_t keyframe_size     = 0;
         uint32_t keyframe_orgsize  = 0;
 
-        p->hls_decryptor->parse_cei(p->hls_decryptor, (uint8_t*)buf, buf_size, &keyframe_index_me, &encryption_flag);
-        if (keyframe_index > 0) {
-            //ok, got the encrypted NALU
-            av_assert0(buf_size > keyframe_index);
-            pkeyframe        = (uint8_t*)buf + keyframe_index;
-            keyframe_size    = buf_size - keyframe_index;
-            keyframe_orgsize = keyframe_size;
-            hls_decryptor_strip03(pkeyframe, &keyframe_size);
-            stripped_size    = keyframe_orgsize - keyframe_size;
-            av_assert0(stripped_size >= 0);
-            if ((apc->hls_encryptinfo->es_type == ES_H264_SAMPLE_SM4_CBC) || (apc->hls_encryptinfo->es_type == ES_H264_SM4_CBC)) {
-                //section 6.2.1 in GY/T277-2019, http://www.nrta.gov.cn/art/2019/6/15/art_113_46189.html
-                if (encryption_flag) {
+        if (apc->hls_encryptinfo->is_provisioned) {
+#ifdef ENABLE_DRMCLIENT
+            //TODO: avoid malloc/free be called frequently
+            unsigned char *pdecrypted_data = NULL;
+            int decrypted_size = 0;
+            int encryption_method = 0;
+            if (apc->hls_encryptinfo->es_type == ES_H264_SAMPLE_SM4_CBC)
+                encryption_method = KEY_SAMPLE_SM4_CBC;
+            else if (apc->hls_encryptinfo->es_type == ES_H264_SM4_CBC)
+                encryption_method = KEY_SM4_CBC;
+
+            CDRMC_ProcessNALUnits(apc->hls_encryptinfo->drm_sessionhandle, ES_H264, encryption_method, (unsigned char*)buf, buf_size, &pdecrypted_data, &decrypted_size);
+            //TODO:avoid memcpy here
+            memcpy((void*)buf, pdecrypted_data, decrypted_size);
+            stripped_size = buf_size - decrypted_size;
+            if (NULL != pdecrypted_data) {
+                free(pdecrypted_data);
+            }
+#endif
+        } else {
+            p->hls_decryptor->parse_cei(p->hls_decryptor, (uint8_t*)buf, buf_size, &keyframe_index_me, &encryption_flag);
+            if (keyframe_index > 0) {
+                //ok, got the encrypted NALU
+                av_assert0(buf_size > keyframe_index);
+                pkeyframe        = (uint8_t*)buf + keyframe_index;
+                keyframe_size    = buf_size - keyframe_index;
+                keyframe_orgsize = keyframe_size;
+                hls_decryptor_strip03(pkeyframe, &keyframe_size);
+                stripped_size    = keyframe_orgsize - keyframe_size;
+                av_assert0(stripped_size >= 0);
+                if ((apc->hls_encryptinfo->es_type == ES_H264_SAMPLE_SM4_CBC) || (apc->hls_encryptinfo->es_type == ES_H264_SM4_CBC)) {
+                    //section 6.2.1 in GY/T277-2019, http://www.nrta.gov.cn/art/2019/6/15/art_113_46189.html
+                    if (encryption_flag) {
+                        p->hls_decryptor->decrypt(p->hls_decryptor, pkeyframe, &keyframe_size);
+                    }
+                } else {
                     p->hls_decryptor->decrypt(p->hls_decryptor, pkeyframe, &keyframe_size);
                 }
-            } else {
-                p->hls_decryptor->decrypt(p->hls_decryptor, pkeyframe, &keyframe_size);
             }
         }
     }

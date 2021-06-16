@@ -72,6 +72,7 @@ struct KeyInfo {
 
      ESType es_type;
      int  is_encrypted;
+     int  is_provisioned;
      void *drm_sessionhandle;
 };
 

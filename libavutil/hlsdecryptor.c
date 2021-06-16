@@ -569,8 +569,7 @@ static int32_t hlsdecryptor_parse_cei(HLSDecryptor *ad, uint8_t *buf, int buf_si
         es_type = ES_H265;
     }
 
-    // CEI parse not required for SampleAES content but we need to know offset of keyframe and other info for further purpose
-    // so  DON'T return here for SampleAES content
+
     if (ES_UNKNOWN == es_type)
         return -1;
 
@@ -632,6 +631,11 @@ static int32_t hlsdecryptor_parse_cei(HLSDecryptor *ad, uint8_t *buf, int buf_si
             search_offset++;
             search_length--;
         }
+    }
+
+    // CEI parse not required for SampleAES content
+    if ((ES_H264 == ad->es_type) || (ES_H264_SAMPLE_AES == ad->es_type) || (ES_H265 == ad->es_type) || (ES_H265_SAMPLE_AES == ad->es_type)) {
+        return 0;
     }
 
     if (seiframe_index > 0) {

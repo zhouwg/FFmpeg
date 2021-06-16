@@ -22,8 +22,8 @@
 #########################################################################
 */
 
-#ifndef _CDE_LOG_H_
-#define _CDE_LOG_H_
+#ifndef CDE_LOG_H
+#define CDE_LOG_H
 
 #ifndef __KERNEL__
 #include <stdio.h>
@@ -128,4 +128,4 @@ void setGlobalLogModule(const char *moduleName, int bEnabled);
 }
 #endif
 
-#endif //_CDE_LOG_H_
+#endif //CDE_LOG_H

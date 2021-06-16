@@ -35,5 +35,6 @@ void dump_key_info(struct KeyInfo *info)
     av_log(NULL, AV_LOG_INFO, "\tinfo->encryption_keystring   : %s", info->encryption_keystring);
     av_log(NULL, AV_LOG_INFO, "\tinfo->is_encrypted           : %d", info->is_encrypted);
     av_log(NULL, AV_LOG_INFO, "\tinfo->es_type                : %d", info->es_type);
-    av_log(NULL, AV_LOG_INFO, "\tinfo->drm_sessionhandle     : %d", info->drm_sessionhandle);
+    av_log(NULL, AV_LOG_INFO, "\tinfo->drm_sessionhandle      : %p", info->drm_sessionhandle);
+    av_log(NULL, AV_LOG_INFO, "\tinfo->is_provisioned         : %d", info->is_provisioned);
 }
