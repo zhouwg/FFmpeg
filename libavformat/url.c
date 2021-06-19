@@ -198,6 +198,41 @@ int ff_make_absolute_url2(char *buf, int size, const char *base,
     const char *keep, *base_path_end;
     int use_base_path, simplify_path = 0, ret;
     const char *base_separators = "/";
+    char real_base[512];
+    char real_rel[512];
+
+    //FIX https://github.com/zhouwg/kantv/issues/12
+    if ((NULL != base) && (NULL != rel) && (0 != memcmp(rel, "http", 4)) && (NULL != strstr(base, ".m3u8")) && (NULL != strstr(rel, ".m3u8"))) {
+        char *preal_base      = (char*)base;
+        int  skip_base_header = 0;
+        int  skip_rel_header  = 0;
+
+        if (strstr(base, "http"))
+            skip_base_header = 8;
+        else if (strstr(base, "https"))
+            skip_base_header = 9;
+        else {
+            av_log(NULL, AV_LOG_ERROR, "it shouldn't happen here,pls check...");
+            return AVERROR(EINVAL);
+        }
+        preal_base += skip_base_header;
+        if (0 == memcmp(rel, "//", 2))
+            skip_rel_header = 2;
+        else if (0 == memcmp(rel, "/", 1))
+            skip_rel_header = 1;
+        else {
+            av_log(NULL, AV_LOG_WARNING, "it shouldn't happen here,pls check...");
+        }
+
+        if (skip_rel_header > 0) {
+            memset(real_base, 0, 512);
+            memset(real_rel,  0, 512);
+            memcpy(real_base, base, skip_base_header + strchr(preal_base, '/') - preal_base);
+            memcpy(real_rel, rel + skip_rel_header, strlen(rel) - skip_rel_header);
+            base = real_base;
+            rel  = real_rel;
+        }
+    }
 
     /* This is tricky.
        For HTTP, http://server/site/page + ../media/file
