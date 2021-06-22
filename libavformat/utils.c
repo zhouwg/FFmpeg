@@ -1644,7 +1644,9 @@ FF_ENABLE_DEPRECATION_WARNINGS
                 st->parser->flags |= PARSER_FLAG_USE_CODEC_TS;
             //ff_h264_parser
             //parser_list
-            LOGV("st->parser->parser->name: %s", st->parser->parser->name);
+            if ((st->parser) && (st->parser->parser)) {
+                LOGV("st->parser->parser->name: %s", st->parser->parser->name);
+            }
         }
 
         if (!st->need_parsing || !st->parser) {
