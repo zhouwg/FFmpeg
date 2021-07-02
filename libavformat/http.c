@@ -131,7 +131,8 @@ typedef struct HTTPContext {
 #define OFFSET(x) offsetof(HTTPContext, x)
 #define D AV_OPT_FLAG_DECODING_PARAM
 #define E AV_OPT_FLAG_ENCODING_PARAM
-#define DEFAULT_USER_AGENT "Lavf/" AV_STRINGIFY(LIBAVFORMAT_VERSION)
+//#define DEFAULT_USER_AGENT "Lavf/" AV_STRINGIFY(LIBAVFORMAT_VERSION)
+#define DEFAULT_USER_AGENT "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.77 Safari/537.36"
 
 static const AVOption options[] = {
     { "seekable", "control seekability of connection", OFFSET(seekable), AV_OPT_TYPE_BOOL, { .i64 = -1 }, -1, 1, D },
