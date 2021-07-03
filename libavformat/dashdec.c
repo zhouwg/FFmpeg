@@ -27,6 +27,7 @@
 #include "internal.h"
 #include "avio_internal.h"
 #include "dash.h"
+#include "libavutil/avassert.h"
 
 #define INITIAL_BUFFER_SIZE 32768
 #define MAX_BPRINT_READ_SIZE (UINT_MAX - 1)
@@ -107,6 +108,10 @@ struct representation {
     int64_t cur_seg_offset;
     int64_t cur_seg_size;
     struct fragment *cur_seg;
+
+    char *cp_schemeid;
+    char *cp_value;
+    char *cp_kid;
 
     /* Currently active Media Initialization Section */
     struct fragment *init_section;
@@ -362,6 +367,9 @@ static void free_representation(struct representation *pls)
     av_freep(&pls->url_template);
     av_freep(&pls->lang);
     av_freep(&pls->id);
+    av_freep(&pls->cp_schemeid);
+    av_freep(&pls->cp_value);
+    av_freep(&pls->cp_kid);
     av_freep(&pls);
 }
 
@@ -837,6 +845,7 @@ static int parse_manifest_representation(AVFormatContext *s, const char *url,
     xmlNodePtr representation_segmenttemplate_node = NULL;
     xmlNodePtr representation_baseurl_node = NULL;
     xmlNodePtr representation_segmentlist_node = NULL;
+    xmlNodePtr representation_contentprotection_node = NULL;
     xmlNodePtr segmentlists_tab[3];
     xmlNodePtr fragment_timeline_node = NULL;
     xmlNodePtr fragment_templates_tab[5];
@@ -876,6 +885,7 @@ static int parse_manifest_representation(AVFormatContext *s, const char *url,
     rep->parent = s;
     representation_segmenttemplate_node = find_child_node_by_name(representation_node, "SegmentTemplate");
     representation_baseurl_node = find_child_node_by_name(representation_node, "BaseURL");
+    representation_contentprotection_node = find_child_node_by_name(representation_node, "ContentProtection");
     representation_segmentlist_node = find_child_node_by_name(representation_node, "SegmentList");
     rep_bandwidth_val = xmlGetProp(representation_node, "bandwidth");
     val               = xmlGetProp(representation_node, "id");
@@ -884,6 +894,27 @@ static int parse_manifest_representation(AVFormatContext *s, const char *url,
         xmlFree(val);
         if (!rep->id)
             goto enomem;
+    }
+
+    if (representation_contentprotection_node) {
+        val  = xmlGetProp(representation_contentprotection_node, "schemeIdUri");
+        if (val) {
+            rep->cp_schemeid = av_strdup(val);
+            xmlFree(val);
+            av_assert0(rep->cp_schemeid != NULL);
+        }
+        val  = xmlGetProp(representation_contentprotection_node, "value");
+        if (val) {
+            rep->cp_value = av_strdup(val);
+            xmlFree(val);
+            av_assert0(rep->cp_value != NULL);
+        }
+        val  = xmlGetProp(representation_contentprotection_node, "default_KID");
+        if (val) {
+            rep->cp_kid = av_strdup(val);
+            xmlFree(val);
+            av_assert0(rep->cp_kid != NULL);
+        }
     }
 
     baseurl_nodes[0] = mpd_baseurl_node;
@@ -1117,6 +1148,7 @@ static int parse_manifest_adaptationset(AVFormatContext *s, const char *url,
     xmlNodePtr content_component_node = NULL;
     xmlNodePtr adaptionset_baseurl_node = NULL;
     xmlNodePtr adaptionset_segmentlist_node = NULL;
+    xmlNodePtr adaptionset_contentprotection_node = NULL;
     xmlNodePtr adaptionset_supplementalproperty_node = NULL;
     xmlNodePtr node = NULL;
 
@@ -1136,6 +1168,34 @@ static int parse_manifest_adaptationset(AVFormatContext *s, const char *url,
             adaptionset_segmentlist_node = node;
         } else if (!av_strcasecmp(node->name, "SupplementalProperty")) {
             adaptionset_supplementalproperty_node = node;
+        } else if (!av_strcasecmp(node->name, "ContentProtection")) {
+            int cp_index = 0;
+            xmlNodePtr tmp_node = NULL;
+            for (cp_index = 0; cp_index < MAX_CENC_DRM_COUNTS; cp_index++) {
+                if (0 == s->dash_encrypt_infos[cp_index].scheme_id_uri[0]) {
+                    break;
+                }
+            }
+            if (cp_index == MAX_CENC_DRM_COUNTS)
+                goto err;
+
+            adaptionset_contentprotection_node = node;
+            char *val  = xmlGetProp(adaptionset_contentprotection_node, "schemeIdUri");
+            if (val != NULL) {
+                memcpy(s->dash_encrypt_infos[cp_index].scheme_id_uri, val, strlen(val));
+            }
+
+            tmp_node = xmlFirstElementChild(adaptionset_contentprotection_node);
+            if (tmp_node != NULL) {
+                tmp_node = xmlFirstElementChild(tmp_node);
+                if (tmp_node != NULL) {
+                    memcpy(s->dash_encrypt_infos[cp_index].drm_name, tmp_node->name, strlen(tmp_node->name));
+                    val = xmlNodeGetContent(tmp_node);
+                    if (val != NULL) {
+                        memcpy(s->dash_encrypt_infos[cp_index].drm_content_id, val, strlen(val));
+                    }
+                }
+            }
         } else if (!av_strcasecmp(node->name, "Representation")) {
             ret = parse_manifest_representation(s, url, node,
                                                 adaptionset_node,
@@ -1897,6 +1957,7 @@ static int reopen_demux_for_component(AVFormatContext *s, struct representation 
         ret = AVERROR(ENOMEM);
         goto fail;
     }
+    memcpy(pls->ctx->dash_encrypt_infos, s->dash_encrypt_infos, sizeof(DASHEncryptInfo) * MAX_CENC_DRM_COUNTS);
 
     avio_ctx_buffer  = av_malloc(INITIAL_BUFFER_SIZE);
     if (!avio_ctx_buffer ) {
@@ -1932,6 +1993,7 @@ static int reopen_demux_for_component(AVFormatContext *s, struct representation 
     av_dict_free(&in_fmt_opts);
     if (ret < 0)
         goto fail;
+
     if (pls->n_fragments) {
 #if FF_API_R_FRAME_RATE
         if (pls->framerate.den) {
@@ -2072,7 +2134,7 @@ static int dash_read_header(AVFormatContext *s)
         av_dict_set(&c->avio_opts, "seekable", "0", 0);
     }
 
-    if(c->n_videos)
+    if (c->n_videos)
         c->is_init_section_common_video = is_common_init_section_exist(c->videos, c->n_videos);
 
     /* Open the demuxer for video and audio components if available */

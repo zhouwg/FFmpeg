@@ -312,6 +312,7 @@
 #include "libavcodec/avcodec.h"
 #include "libavutil/dict.h"
 #include "libavutil/log.h"
+#include "libavutil/encryption_info.h"
 
 #include "avio.h"
 #include "libavformat/version.h"
@@ -1862,6 +1863,7 @@ typedef struct AVFormatContext {
      * - decoding: set by user
      */
     int max_probe_packets;
+    DASHEncryptInfo dash_encrypt_infos[MAX_CENC_DRM_COUNTS];
 } AVFormatContext;
 
 #if FF_API_FORMAT_GET_SET

@@ -122,6 +122,22 @@ typedef struct AVEncryptionInitInfo {
     struct AVEncryptionInitInfo *next;
 } AVEncryptionInitInfo;
 
+#define MAX_CENC_INFO_SIZE  64
+//Marlin, https://www.marlin-community.com/
+//Google Widevine
+//Microsoft Playready
+//ChinaDRM
+#define MAX_CENC_DRM_COUNTS 4
+typedef struct DASHEncryptInfo {
+    char scheme_id_uri[MAX_CENC_INFO_SIZE];
+    char value[MAX_CENC_INFO_SIZE];
+    char default_kid[MAX_CENC_INFO_SIZE];
+    char drm_name[MAX_CENC_INFO_SIZE];
+    char drm_content_id[MAX_CENC_INFO_SIZE];
+} DASHEncryptInfo;
+
+
+//TODO: unify HLS SampleAES/SampleSM4 decrypt
 /**
  * Allocates an AVEncryptionInfo structure and sub-pointers to hold the given
  * number of subsamples.  This will allocate pointers for the key ID, IV,

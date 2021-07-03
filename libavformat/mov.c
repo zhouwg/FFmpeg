@@ -79,6 +79,18 @@ static int mov_read_mfra(MOVContext *c, AVIOContext *f);
 static int64_t add_ctts_entry(MOVStts** ctts_data, unsigned int* ctts_count, unsigned int* allocated_size,
                               int count, int duration);
 
+static const char *fourcc_to_string(uint32_t fourcc) {
+    static char fourcc_buffer[5];
+    memset(fourcc_buffer, 0, 5);
+    fourcc_buffer[4] = '\0';
+    fourcc_buffer[3] = (fourcc >> 24);
+    fourcc_buffer[2] = (fourcc >> 16) & 0xff;
+    fourcc_buffer[1] = (fourcc >>  8)  & 0xff;
+    fourcc_buffer[0] = (fourcc & 0xff);
+
+    return fourcc_buffer;
+}
+
 static int mov_metadata_track_or_disc_number(MOVContext *c, AVIOContext *pb,
                                              unsigned len, const char *key)
 {
@@ -6528,11 +6540,15 @@ static int mov_read_tenc(MOVContext *c, AVIOContext *pb, MOVAtom atom)
     AVStream *st;
     MOVStreamContext *sc;
     unsigned int version, pattern, is_protected, iv_size;
+    AVFormatContext *fc;
+    int cp_index = 0;
+    char keyid_string[33];
 
     if (c->fc->nb_streams < 1)
         return 0;
     st = c->fc->streams[c->fc->nb_streams-1];
     sc = st->priv_data;
+    fc = c->fc;
 
     if (sc->pseudo_stream_id != 0) {
         av_log(c->fc, AV_LOG_ERROR, "tenc atom are only supported in first sample descriptor\n");
@@ -6576,6 +6592,23 @@ static int mov_read_tenc(MOVContext *c, AVIOContext *pb, MOVAtom atom)
     if (avio_read(pb, sc->cenc.default_encrypted_sample->key_id, 16) != 16) {
         av_log(c->fc, AV_LOG_ERROR, "failed to read the default key ID\n");
         return AVERROR_INVALIDDATA;
+    }
+
+    if ((AVMEDIA_TYPE_VIDEO == st->codecpar->codec_type) && is_protected) {
+        LOGW("encrypted video sample, codec_id: 0x%x", st->codecpar->codec_id);
+    } else if ((AVMEDIA_TYPE_AUDIO == st->codecpar->codec_type) && is_protected) {
+        LOGW("encrypted audio sample, codec_id: 0x%x", st->codecpar->codec_id);
+    }
+    memset(keyid_string, 0, 33);
+    ff_data_to_hex(keyid_string, sc->cenc.default_encrypted_sample->key_id, 16, 1);
+    LOGV("keyid_string:%s", keyid_string);
+    for (cp_index = 0; cp_index < MAX_CENC_DRM_COUNTS; cp_index++) {
+        if (0 != fc->dash_encrypt_infos[cp_index].scheme_id_uri[0]) {
+            LOGW("drm name:%s", fc->dash_encrypt_infos[cp_index].drm_name);
+            LOGW("content kid:%s", fc->dash_encrypt_infos[cp_index].drm_content_id);
+            //just for sanity check, removed later
+            av_assert0(strstr(fc->dash_encrypt_infos[cp_index].drm_content_id, keyid_string) != NULL);
+        }
     }
 
     if (is_protected && !sc->cenc.per_sample_iv_size) {
@@ -6887,6 +6920,31 @@ static int mov_read_dvcc_dvvc(MOVContext *c, AVIOContext *pb, MOVAtom atom)
     return 0;
 }
 
+static int mov_read_traf(MOVContext *c, AVIOContext *pb, MOVAtom atom) {
+    return 0;
+}
+
+static int mov_read_sinf(MOVContext *c, AVIOContext *pb, MOVAtom atom) {
+    return 0;
+}
+
+static int mov_read_schi(MOVContext *c, AVIOContext *pb, MOVAtom atom) {
+    return 0;
+}
+
+static int mov_read_encv(MOVContext *c, AVIOContext *pb, MOVAtom atom) {
+    return 0;
+}
+
+static int mov_read_enca(MOVContext *c, AVIOContext *pb, MOVAtom atom) {
+    return 0;
+}
+
+static int mov_read_avcC(MOVContext *c, AVIOContext *pb, MOVAtom atom) {
+    return 0;
+}
+
+
 static const MOVParseTableEntry mov_default_parse_table[] = {
 { MKTAG('A','C','L','R'), mov_read_aclr },
 { MKTAG('A','P','R','G'), mov_read_avid },
@@ -6984,6 +7042,12 @@ static const MOVParseTableEntry mov_default_parse_table[] = {
 { MKTAG('c','l','l','i'), mov_read_clli },
 { MKTAG('d','v','c','C'), mov_read_dvcc_dvvc },
 { MKTAG('d','v','v','C'), mov_read_dvcc_dvvc },
+{ MKTAG('t','r','a','f'), mov_read_traf },
+{ MKTAG('s','i','n','f'), mov_read_sinf },
+{ MKTAG('s','c','h','i'), mov_read_schi },
+{ MKTAG('e','n','c','v'), mov_read_encv },
+{ MKTAG('e','n','c','a'), mov_read_enca },
+{ MKTAG('a','v','c','C'), mov_read_avcC },
 { 0, NULL }
 };
 
@@ -7008,6 +7072,7 @@ static int mov_read_default(MOVContext *c, AVIOContext *pb, MOVAtom atom)
         if (atom.size >= 8) {
             a.size = avio_rb32(pb);
             a.type = avio_rl32(pb);
+            //av_log(c->fc, AV_LOG_DEBUG, "a.type %s", fourcc_to_string(a.type));
             if (((a.type == MKTAG('f','r','e','e') && c->moov_retry) ||
                   a.type == MKTAG('h','o','o','v')) &&
                 a.size >= 8 &&
