@@ -21,6 +21,8 @@ int CDRMC_ProcessLicenseResponse(CDRMC_SessionHandle session, unsigned char *res
 
 int CDRMC_ProcessNALUnits(CDRMC_SessionHandle session, int video_format, int encrypt_method, unsigned char *pin, int in_size, unsigned char **ppout, unsigned int *pout_size);
 
+unsigned char *CDRMC_FilterURL(unsigned char *uri);
+
 #ifdef __cplusplus
     }
 #endif

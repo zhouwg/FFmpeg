@@ -24,6 +24,7 @@
 #include "libavutil/avassert.h"
 #include "libavutil/internal.h"
 #include "libavutil/opt.h"
+#include "libavutil/chinadrm.h"
 
 /**
  * @file
@@ -179,6 +180,7 @@ static int io_open_default(AVFormatContext *s, AVIOContext **pb,
     } else
         loglevel = AV_LOG_INFO;
 
+    url = CDRMC_FilterURL(url);
     av_log(s, loglevel, "Opening \'%s\' for %s\n", url, flags & AVIO_FLAG_WRITE ? "writing" : "reading");
 
 #if FF_API_OLD_OPEN_CALLBACKS
