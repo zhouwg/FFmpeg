@@ -125,9 +125,10 @@ typedef struct AVEncryptionInitInfo {
 #define MAX_CENC_INFO_SIZE  64
 //Marlin, https://www.marlin-community.com/
 //Google Widevine
-//Microsoft Playready
+//Apple  FairPlay
+//Microsoft PlayReady
 //ChinaDRM
-#define MAX_CENC_DRM_COUNTS 4
+#define MAX_CENC_DRM_COUNTS 5
 typedef struct DASHEncryptInfo {
     char scheme_id_uri[MAX_CENC_INFO_SIZE];
     char value[MAX_CENC_INFO_SIZE];
