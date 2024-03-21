@@ -44,3 +44,8 @@ GPL. Please refer to the LICENSE file for detailed information.
 Patches should be submitted to the ffmpeg-devel mailing list using
 `git format-patch` or `git send-email`. Github pull requests should be
 avoided because they are not part of our review process and will be ignored.
+
+
+# Status/Defect
+
+This project has moved into Project KanTV since 03-21-2024, so it's no longer maintained.
